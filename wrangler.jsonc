@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dtn-publisher",
+  "compatibility_date": "2026-07-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "dtnpblisher",
+      "database_id": "8e6e2174-36a5-4c33-818d-9f047883a36c",
+      "migrations_dir": "./migrations"
+    }
+  ]
+}
