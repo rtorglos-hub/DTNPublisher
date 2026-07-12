@@ -20,9 +20,58 @@ export interface DriveEntry {
   [key: string]: unknown;
 }
 
-export async function fetchDriveEntries(folderId: string, apiKey: string): Promise<DriveEntry[]> {
-  const apiBase = `https://www.googleapis.com/drive/v3/files`;
+function normalizeEntry(entry: any): DriveEntry {
+  if (!entry || typeof entry !== "object") return entry;
+  
+  const normalized: DriveEntry = { ...entry };
+  
+  if (!normalized.title) {
+    normalized.title = entry.title || entry.fuente_nombre || entry.name || "Untitled";
+  }
+  if (!normalized.summary) {
+    normalized.summary = entry.summary || entry.texto_telegram || entry.descripcion || entry.description || "";
+  }
+  if (!normalized.link) {
+    normalized.link = entry.link || entry.fuente_url || entry.url || "";
+  }
+  if (!normalized.category) {
+    normalized.category = entry.category || entry.categoria || "";
+  }
+  
+  return normalized;
+}
 
+function normalizeDriveData(data: any): DriveEntry[] {
+  if (Array.isArray(data)) {
+    return data.map(normalizeEntry);
+  }
+  
+  if (data && typeof data === "object") {
+    // Buscar propiedades de tipo array conocidas
+    const arrayKeys = ["posts", "articles", "items", "entries", "data"];
+    for (const key of arrayKeys) {
+      if (Array.isArray(data[key])) {
+        return data[key].map(normalizeEntry);
+      }
+    }
+    
+    // Buscar cualquier otra propiedad que sea un array
+    for (const key in data) {
+      if (Array.isArray(data[key])) {
+        return data[key].map(normalizeEntry);
+      }
+    }
+  }
+  
+  return [normalizeEntry(data)];
+}
+
+export async function fetchDriveEntries(folderId: string, apiKey: string): Promise<DriveEntry[]> {
+  if (!apiKey) {
+    throw new Error("La lectura de carpetas completas de Google Drive requiere configurar un GDRIVE_API_KEY. Si no dispones de una clave, introduce un enlace directo al archivo JSON en su lugar.");
+  }
+
+  const apiBase = `https://www.googleapis.com/drive/v3/files`;
   const listUrl = `${apiBase}?q='${folderId}'+in+parents&key=${apiKey}&fields=files(id,name,mimeType)&pageSize=100`;
   const listRes = await fetch(listUrl);
   if (!listRes.ok) {
@@ -40,25 +89,23 @@ export async function fetchDriveEntries(folderId: string, apiKey: string): Promi
     if (!dlRes.ok) continue;
 
     const data = await dlRes.json();
-    if (Array.isArray(data)) {
-      allEntries.push(...data);
-    } else {
-      allEntries.push(data);
-    }
+    allEntries.push(...normalizeDriveData(data));
   }
 
   return allEntries;
 }
 
 export async function fetchSingleDriveFile(fileId: string, apiKey: string): Promise<DriveEntry[]> {
-  const dlUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${apiKey}`;
+  const dlUrl = apiKey
+    ? `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${apiKey}`
+    : `https://docs.google.com/uc?export=download&id=${fileId}`;
+
   const dlRes = await fetch(dlUrl);
   if (!dlRes.ok) {
     const err = await dlRes.text();
-    throw new Error(`Drive API download error: ${dlRes.status} - ${err}`);
+    throw new Error(apiKey ? `Drive API download error: ${dlRes.status} - ${err}` : `Public download error: ${dlRes.status} - ${err}`);
   }
 
   const data = await dlRes.json();
-  if (Array.isArray(data)) return data;
-  return [data];
+  return normalizeDriveData(data);
 }
