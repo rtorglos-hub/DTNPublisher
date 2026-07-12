@@ -21,8 +21,10 @@ import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider } from 'firebas
 export default function App() {
   const [botToken, setBotToken] = useState('');
   const [channelId, setChannelId] = useState('');
+  const [driveUrl, setDriveUrl] = useState('');
   const [user, setUser] = useState(auth.currentUser);
   const [loading, setLoading] = useState(false);
+  const [loadingDrive, setLoadingDrive] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -39,22 +41,37 @@ export default function App() {
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
       const data = docSnap.data();
-      setBotToken(data.botToken);
-      setChannelId(data.channelId);
+      setBotToken(data.botToken || '');
+      setChannelId(data.channelId || '');
+      setDriveUrl(data.driveUrl || '');
     }
   };
 
-  const handleSave = async () => {
+  const handleSaveBot = async () => {
     if (!user) return;
     setLoading(true);
     try {
-      await setDoc(doc(db, 'botConfig', user.uid), { botToken, channelId });
-      alert('Configuración guardada exitosamente');
+      await setDoc(doc(db, 'botConfig', user.uid), { botToken, channelId, driveUrl }, { merge: true });
+      alert('Configuración del bot guardada exitosamente');
     } catch (e) {
       console.error(e);
       alert('Error al guardar');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveDrive = async () => {
+    if (!user) return;
+    setLoadingDrive(true);
+    try {
+      await setDoc(doc(db, 'botConfig', user.uid), { botToken, channelId, driveUrl }, { merge: true });
+      alert('URL de Drive guardada exitosamente');
+    } catch (e) {
+      console.error(e);
+      alert('Error al guardar');
+    } finally {
+      setLoadingDrive(false);
     }
   };
 
@@ -86,12 +103,16 @@ export default function App() {
               <h2 className="text-[10px] font-mono opacity-60 uppercase">Source: Google Drive</h2>
               <h1 className="text-xl font-serif italic">News Inbox</h1>
             </div>
-            <button className="px-3 py-1 border border-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors">
-              Connect Drive
+          </div>
+          <div className="p-4 border-b border-[#141414]">
+            <label className="block text-[9px] uppercase opacity-40 mb-1">Drive URL</label>
+            <input type="text" value={driveUrl} onChange={e => setDriveUrl(e.target.value)} className="w-full bg-white border border-[#141414] text-xs py-1 px-2 font-mono outline-none mb-2" placeholder="https://drive.google.com/..." />
+            <button onClick={handleSaveDrive} disabled={loadingDrive} className="w-full border border-[#141414] py-1 text-[10px] font-bold hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors">
+              {loadingDrive ? 'Saving...' : 'Save Drive URL'}
             </button>
           </div>
           <div className="flex-1 overflow-y-auto font-mono text-[11px] p-4 text-center">
-             <p>Connect your Google Drive to fetch your news articles.</p>
+             <p>Connect your Google Drive and set the URL to fetch news.</p>
           </div>
         </section>
 
@@ -127,7 +148,7 @@ export default function App() {
              <p className="text-[10px] font-mono opacity-60">Configure your posting schedule here.</p>
           </div>
 
-          <div className="p-4 bg-[#141414] text-[#E4E3E0] h-[220px]">
+          <div className="p-4 bg-[#141414] text-[#E4E3E0] h-[300px]">
             <h3 className="text-[10px] font-bold uppercase mb-4 opacity-50">Telegram Integration</h3>
             {user ? (
               <div className="space-y-4">
@@ -139,8 +160,8 @@ export default function App() {
                   <label className="block text-[9px] uppercase opacity-40 mb-1">Channel ID</label>
                   <input type="text" value={channelId} onChange={e => setChannelId(e.target.value)} className="w-full bg-transparent border-b border-[#E4E3E0]/30 text-xs py-1 font-mono outline-none" />
                 </div>
-                <button onClick={handleSave} disabled={loading} className="w-full border border-[#E4E3E0] py-2 text-[10px] font-bold hover:bg-[#E4E3E0] hover:text-[#141414] transition-all">
-                  {loading ? 'Saving...' : 'Save Configuration'}
+                <button onClick={handleSaveBot} disabled={loading} className="w-full border border-[#E4E3E0] py-2 text-[10px] font-bold hover:bg-[#E4E3E0] hover:text-[#141414] transition-all">
+                  {loading ? 'Saving...' : 'Save Bot Config'}
                 </button>
               </div>
             ) : (
