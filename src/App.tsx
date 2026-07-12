@@ -8,10 +8,62 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { useState, useEffect } from 'react';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db, auth } from './lib/firebase';
+import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 export default function App() {
+  const [botToken, setBotToken] = useState('');
+  const [channelId, setChannelId] = useState('');
+  const [user, setUser] = useState(auth.currentUser);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        fetchConfig(currentUser.uid);
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  const fetchConfig = async (uid: string) => {
+    const docRef = doc(db, 'botConfig', uid);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      setBotToken(data.botToken);
+      setChannelId(data.channelId);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      await setDoc(doc(db, 'botConfig', user.uid), { botToken, channelId });
+      alert('Configuración guardada exitosamente');
+    } catch (e) {
+      console.error(e);
+      alert('Error al guardar');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogin = () => {
+    signInWithPopup(auth, new GoogleAuthProvider());
+  };
+
   return (
     <div className="w-full min-h-screen bg-[#E4E3E0] text-[#141414] flex flex-col font-sans overflow-hidden">
-      {/* Top Navigation / Status Bar */}
       <header className="h-14 border-b border-[#141414] flex items-center justify-between px-6 bg-[#E4E3E0]">
         <div className="flex items-center gap-4">
           <span className="font-black text-lg tracking-tighter uppercase">DTN Publisher</span>
@@ -77,7 +129,25 @@ export default function App() {
 
           <div className="p-4 bg-[#141414] text-[#E4E3E0] h-[220px]">
             <h3 className="text-[10px] font-bold uppercase mb-4 opacity-50">Telegram Integration</h3>
-             <p className="text-[10px] font-mono opacity-60">Configure your bot here.</p>
+            {user ? (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-[9px] uppercase opacity-40 mb-1">Bot Token</label>
+                  <input type="password" value={botToken} onChange={e => setBotToken(e.target.value)} className="w-full bg-transparent border-b border-[#E4E3E0]/30 text-xs py-1 font-mono outline-none" />
+                </div>
+                <div>
+                  <label className="block text-[9px] uppercase opacity-40 mb-1">Channel ID</label>
+                  <input type="text" value={channelId} onChange={e => setChannelId(e.target.value)} className="w-full bg-transparent border-b border-[#E4E3E0]/30 text-xs py-1 font-mono outline-none" />
+                </div>
+                <button onClick={handleSave} disabled={loading} className="w-full border border-[#E4E3E0] py-2 text-[10px] font-bold hover:bg-[#E4E3E0] hover:text-[#141414] transition-all">
+                  {loading ? 'Saving...' : 'Save Configuration'}
+                </button>
+              </div>
+            ) : (
+              <button onClick={handleLogin} className="w-full border border-[#E4E3E0] py-2 text-[10px] font-bold hover:bg-[#E4E3E0] hover:text-[#141414] transition-all">
+                Login with Google
+              </button>
+            )}
           </div>
         </section>
       </main>
