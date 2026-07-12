@@ -16,7 +16,9 @@ import {
   Folder,
   RefreshCw,
   ExternalLink,
-  Filter
+  Filter,
+  Eye,
+  Zap
 } from "lucide-react";
 
 interface AppConfig {
@@ -51,11 +53,10 @@ export default function App() {
   const [testingBot, setTestingBot] = useState(false);
   const [template, setTemplate] = useState("{texto_telegram}");
   const [toasts, setToasts] = useState<Toast[]>([]);
-  
-  // Search and Category Filters
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [previewOpen, setPreviewOpen] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/api/config")
@@ -69,6 +70,8 @@ export default function App() {
       .catch(() => setDbConnected(false));
   }, []);
 
+  // ── Helpers ──────────────────────────────────────────────────────────────
+
   const showToast = (message: string, type: "success" | "error" | "info" = "info", title?: string) => {
     const id = Date.now();
     setToasts((prev) => [...prev, { id, message, type, title }]);
@@ -77,13 +80,32 @@ export default function App() {
     }, 4500);
   };
 
+  /** Returns indices in `entries[]` that pass the current search + category filter */
+  const filteredIndices: number[] = entries
+    .map((entry, idx) => ({ entry, idx }))
+    .filter(({ entry }) => {
+      const text = `${entry.title ?? ""} ${entry.summary ?? ""} ${entry.category ?? ""}`.toLowerCase();
+      const matchesSearch = text.includes(search.toLowerCase());
+      const matchesCategory = !selectedCategory || entry.category === selectedCategory;
+      return matchesSearch && matchesCategory;
+    })
+    .map(({ idx }) => idx);
+
+  const filteredEntries = filteredIndices.map((idx) => entries[idx]);
+
+  /** Unique categories derived from loaded entries */
+  const categories = Array.from(
+    new Set(entries.map((e) => e.category).filter(Boolean) as string[])
+  );
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+
   async function handleSaveDriveUrl() {
     try {
-      const next = { ...config, driveUrl: config.driveUrl };
       const r = await fetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(next),
+        body: JSON.stringify(config),
       });
       if (r.ok) {
         showToast("Dirección de Google Drive guardada con éxito.", "success", "Enlace Guardado");
@@ -100,7 +122,7 @@ export default function App() {
       showToast("El token del bot es obligatorio para verificar la conexión.", "error", "Error de Configuración");
       return;
     }
-    
+
     setTestingBot(true);
     try {
       const response = await fetch("/api/telegram/test", {
@@ -109,28 +131,23 @@ export default function App() {
         body: JSON.stringify({ botToken: config.botToken }),
       });
       const data = await response.json();
-      
+
       if (!response.ok || !data.ok) {
         showToast(data.error || "Token inválido o error de conexión.", "error", "Bot Inválido");
         return;
       }
-      
-      // Si el token es correcto, proceder a guardar la configuración
+
       const saveRes = await fetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          botToken: config.botToken, 
-          channelId: config.channelId, 
-          driveUrl: config.driveUrl 
-        }),
+        body: JSON.stringify(config),
       });
-      
+
       if (saveRes.ok) {
         showToast(
           `¡Configuración guardada! Bot verificado: @${data.username} (${data.first_name})`,
           "success",
-          "Bot Conectado"
+          "Bot Conectado ✓"
         );
       } else {
         showToast("Error al guardar la configuración en la base de datos.", "error", "Error de Guardado");
@@ -147,7 +164,9 @@ export default function App() {
     setFetching(true);
     setEntries([]);
     setSelected(new Set());
-    
+    setSearch("");
+    setSelectedCategory(null);
+
     try {
       const r = await fetch("/api/drive/fetch", {
         method: "POST",
@@ -168,25 +187,23 @@ export default function App() {
     }
   }
 
-  function toggleSelect(index: number) {
+  function toggleSelect(originalIndex: number) {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
+      if (next.has(originalIndex)) next.delete(originalIndex);
+      else next.add(originalIndex);
       return next;
     });
   }
 
-  function selectAll() {
-    const visibleIndices = getFilteredEntriesIndices();
-    const allVisibleSelected = visibleIndices.every(idx => selected.has(idx));
-
+  function selectAllFiltered() {
+    const allSelected = filteredIndices.every((idx) => selected.has(idx));
     setSelected((prev) => {
       const next = new Set(prev);
-      if (allVisibleSelected) {
-        visibleIndices.forEach(idx => next.delete(idx));
+      if (allSelected) {
+        filteredIndices.forEach((idx) => next.delete(idx));
       } else {
-        visibleIndices.forEach(idx => next.add(idx));
+        filteredIndices.forEach((idx) => next.add(idx));
       }
       return next;
     });
@@ -196,7 +213,7 @@ export default function App() {
     const toSend = entries.filter((_, i) => selected.has(i));
     if (toSend.length === 0) return;
     setSending(true);
-    
+
     try {
       const r = await fetch("/api/telegram/send", {
         method: "POST",
@@ -213,7 +230,6 @@ export default function App() {
           "Envío Terminado"
         );
         if (data.success > 0) {
-          // Eliminar de la lista local los enviados con éxito
           setEntries((prev) => prev.filter((_, i) => !selected.has(i)));
           setSelected(new Set());
         }
@@ -226,69 +242,48 @@ export default function App() {
   }
 
   const handleCopyToClipboard = (text: string, index: number) => {
-    navigator.clipboard.writeText(text)
+    navigator.clipboard
+      .writeText(text)
       .then(() => {
         setCopiedIndex(index);
-        showToast("Mensaje copiado al portapapeles con éxito.", "success");
+        showToast("Mensaje copiado al portapapeles.", "success");
         setTimeout(() => setCopiedIndex(null), 2000);
       })
-      .catch((e) => showToast(`No se pudo copiar el texto: ${e}`, "error"));
+      .catch((e) => showToast(`No se pudo copiar: ${e}`, "error"));
   };
 
-  // Helper to extract unique categories
-  const categories = Array.from(
-    new Set(entries.map((e) => e.category).filter(Boolean) as string[])
-  );
-
-  // Filter entries based on search and selected category
-  const filteredEntries = entries.filter((entry) => {
-    const textToSearch = `${entry.title || ""} ${entry.summary || ""} ${entry.category || ""}`.toLowerCase();
-    const matchesSearch = textToSearch.includes(search.toLowerCase());
-    const matchesCategory = !selectedCategory || entry.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
-
-  // Get index list of currently filtered items
-  const getFilteredEntriesIndices = (): number[] => {
-    return entries
-      .map((entry, idx) => ({ entry, idx }))
-      .filter(({ entry }) => {
-        const textToSearch = `${entry.title || ""} ${entry.summary || ""} ${entry.category || ""}`.toLowerCase();
-        const matchesSearch = textToSearch.includes(search.toLowerCase());
-        const matchesCategory = !selectedCategory || entry.category === selectedCategory;
-        return matchesSearch && matchesCategory;
-      })
-      .map(({ idx }) => idx);
-  };
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="w-full min-h-screen bg-[#F0EFEB] text-[#1A1A1A] flex flex-col font-sans selection:bg-[#FFD166] selection:text-[#1A1A1A]">
-      
+
       {/* Toast Notification Container */}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3 max-w-sm w-full">
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3 max-w-sm w-full pointer-events-none">
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`border-2 border-[#1A1A1A] p-4 bg-white shadow-[4px_4px_0px_#1A1A1A] transition-all transform duration-300 flex items-start gap-3 relative ${
-              toast.type === "success" 
-                ? "bg-[#D8F3DC]" 
-                : toast.type === "error" 
-                ? "bg-[#FAD2E1]" 
+            className={`pointer-events-auto border-2 border-[#1A1A1A] p-4 shadow-[4px_4px_0px_#1A1A1A] flex items-start gap-3 ${
+              toast.type === "success"
+                ? "bg-[#D8F3DC]"
+                : toast.type === "error"
+                ? "bg-[#FAD2E1]"
                 : "bg-[#E8F0FE]"
             }`}
           >
-            <div className="mt-0.5">
+            <div className="mt-0.5 shrink-0">
               {toast.type === "success" && <CheckCircle className="w-5 h-5 text-green-700" />}
               {toast.type === "error" && <AlertTriangle className="w-5 h-5 text-red-700" />}
               {toast.type === "info" && <Info className="w-5 h-5 text-blue-700" />}
             </div>
-            <div className="flex-1">
-              {toast.title && <h4 className="font-black text-xs uppercase tracking-wider mb-0.5">{toast.title}</h4>}
-              <p className="text-xs font-mono">{toast.message}</p>
+            <div className="flex-1 min-w-0">
+              {toast.title && (
+                <h4 className="font-black text-xs uppercase tracking-wider mb-0.5">{toast.title}</h4>
+              )}
+              <p className="text-xs font-mono break-words">{toast.message}</p>
             </div>
             <button
               onClick={() => setToasts((prev) => prev.filter((t) => t.id !== toast.id))}
-              className="text-[#1A1A1A]/60 hover:text-[#1A1A1A]"
+              className="shrink-0 text-[#1A1A1A]/60 hover:text-[#1A1A1A] transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -297,155 +292,170 @@ export default function App() {
       </div>
 
       {/* Header */}
-      <header className="h-16 border-b-4 border-[#1A1A1A] flex items-center justify-between px-6 bg-[#FFD166] shadow-[0_4px_0_#1A1A1A]">
+      <header className="h-16 border-b-4 border-[#1A1A1A] flex items-center justify-between px-6 bg-[#FFD166] shadow-[0_4px_0_#1A1A1A] shrink-0">
         <div className="flex items-center gap-3">
-          <div className="bg-[#1A1A1A] text-[#FFD166] p-1.5 border-2 border-[#1A1A1A] shadow-[2px_2px_0_#FFD166] transform rotate-[-2deg]">
-            <Sparkles className="w-5 h-5" />
+          <div className="bg-[#1A1A1A] text-[#FFD166] p-1.5 border-2 border-[#1A1A1A]">
+            <Zap className="w-5 h-5" />
           </div>
           <span className="font-black text-xl tracking-tighter uppercase italic">DTN Publisher</span>
         </div>
-        
+
         <div className="flex items-center gap-3">
           <div className="hidden sm:flex items-center gap-2 bg-white border-2 border-[#1A1A1A] px-3 py-1 text-[10px] font-mono shadow-[2px_2px_0_#1A1A1A]">
-            <span className={`w-2.5 h-2.5 rounded-full border border-[#1A1A1A] ${dbConnected ? "bg-green-500" : "bg-red-500"}`} />
+            <span
+              className={`w-2.5 h-2.5 rounded-full border border-[#1A1A1A] ${
+                dbConnected ? "bg-green-500" : "bg-red-500"
+              }`}
+            />
             DB: {dbConnected ? "ONLINE" : "OFFLINE"}
           </div>
           <div className="hidden sm:flex items-center gap-2 bg-white border-2 border-[#1A1A1A] px-3 py-1 text-[10px] font-mono shadow-[2px_2px_0_#1A1A1A]">
-            <span className={`w-2.5 h-2.5 rounded-full border border-[#1A1A1A] ${config.botToken ? "bg-green-500" : "bg-yellow-400"}`} />
+            <span
+              className={`w-2.5 h-2.5 rounded-full border border-[#1A1A1A] ${
+                config.botToken ? "bg-green-500" : "bg-yellow-400"
+              }`}
+            />
             BOT: {config.botToken ? "ONLINE" : "DESCONECTADO"}
           </div>
         </div>
       </header>
 
       {/* Main Grid */}
-      <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
-        
-        {/* Left Column: Config Panel */}
+      <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0">
+
+        {/* ── Left Column: Config Panel ── */}
         <section className="lg:col-span-3 border-b-4 lg:border-b-0 lg:border-r-4 border-[#1A1A1A] flex flex-col bg-white overflow-y-auto">
-          
-          {/* Header Section */}
-          <div className="p-4 border-b-2 border-[#1A1A1A] bg-[#A8DADC] flex items-center gap-2">
+
+          <div className="p-4 border-b-2 border-[#1A1A1A] bg-[#A8DADC] flex items-center gap-2 shrink-0">
             <Folder className="w-5 h-5" />
-            <h1 className="text-md font-black uppercase tracking-tight">Recursos e Input</h1>
+            <h2 className="text-md font-black uppercase tracking-tight">Recursos e Input</h2>
           </div>
 
           {/* Google Drive Config */}
-          <div className="p-4 border-b-2 border-[#1A1A1A] bg-[#F1FAEE] space-y-3">
+          <div className="p-4 border-b-2 border-[#1A1A1A] bg-[#F1FAEE] space-y-3 shrink-0">
             <h3 className="text-xs font-black uppercase tracking-wide text-[#457B9D]">Origen: Google Drive</h3>
-            
+
             <div>
-              <label className="block text-[9px] uppercase font-black opacity-60 mb-1">Enlace a Carpeta o Archivo</label>
+              <label className="block text-[9px] uppercase font-black opacity-60 mb-1">
+                Enlace a Carpeta o Archivo
+              </label>
               <div className="relative">
                 <input
                   type="text"
                   value={config.driveUrl}
                   onChange={(e) => setConfig({ ...config, driveUrl: e.target.value })}
-                  className="w-full bg-white border-2 border-[#1A1A1A] text-xs py-1.5 pl-7 pr-2 font-mono outline-none shadow-[2px_2px_0_#1A1A1A] focus:translate-x-[-1px] focus:translate-y-[-1px] focus:shadow-[3px_3px_0_#1A1A1A] transition-all"
+                  className="w-full bg-white border-2 border-[#1A1A1A] text-xs py-1.5 pl-7 pr-2 font-mono outline-none shadow-[2px_2px_0_#1A1A1A] focus:-translate-x-px focus:-translate-y-px focus:shadow-[3px_3px_0_#1A1A1A] transition-all"
                   placeholder="https://drive.google.com/..."
                 />
-                <Link2 className="w-4 h-4 absolute left-2 top-2 text-[#1A1A1A]/50" />
+                <Link2 className="w-4 h-4 absolute left-2 top-2 text-[#1A1A1A]/50 pointer-events-none" />
               </div>
             </div>
-            
+
             <div className="grid grid-cols-2 gap-2 pt-1">
               <button
                 onClick={handleSaveDriveUrl}
-                className="border-2 border-[#1A1A1A] py-1.5 text-[10px] font-black uppercase bg-[#E9D8A6] hover:bg-[#D9C896] hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-[2px_2px_0_#1A1A1A] transition-all shadow-[1px_1px_0_#1A1A1A]"
+                className="border-2 border-[#1A1A1A] py-1.5 text-[10px] font-black uppercase bg-[#E9D8A6] hover:bg-[#D9C896] hover:-translate-x-px hover:-translate-y-px hover:shadow-[2px_2px_0_#1A1A1A] transition-all shadow-[1px_1px_0_#1A1A1A] flex items-center justify-center gap-1"
               >
-                <div className="flex items-center justify-center gap-1">
-                  <Save className="w-3.5 h-3.5" /> Guardar Link
-                </div>
+                <Save className="w-3.5 h-3.5" /> Guardar Link
               </button>
               <button
                 onClick={fetchDrive}
                 disabled={fetching || !config.driveUrl}
-                className="border-2 border-[#1A1A1A] py-1.5 text-[10px] font-black uppercase bg-[#1A1A1A] text-white hover:bg-[#333333] hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-[2px_2px_0_#1A1A1A] transition-all disabled:opacity-40 disabled:pointer-events-none"
+                className="border-2 border-[#1A1A1A] py-1.5 text-[10px] font-black uppercase bg-[#1A1A1A] text-white hover:bg-[#333333] hover:-translate-x-px hover:-translate-y-px hover:shadow-[2px_2px_0_#1A1A1A] transition-all disabled:opacity-40 disabled:pointer-events-none flex items-center justify-center gap-1"
               >
-                <div className="flex items-center justify-center gap-1">
-                  <Download className={`w-3.5 h-3.5 ${fetching ? "animate-spin" : ""}`} /> Descargar JSON
-                </div>
+                <Download className={`w-3.5 h-3.5 ${fetching ? "animate-bounce" : ""}`} />
+                {fetching ? "Cargando..." : "Descargar JSON"}
               </button>
             </div>
           </div>
 
           {/* Template Config */}
-          <div className="p-4 flex-1 flex flex-col bg-white">
-            <div className="flex items-center justify-between mb-2">
+          <div className="p-4 flex flex-col gap-2 flex-1">
+            <div className="flex items-center justify-between">
               <h3 className="text-xs font-black uppercase tracking-wide text-[#E63946]">Plantilla de Envío</h3>
-              <span className="text-[8px] font-mono bg-[#E63946]/10 text-[#E63946] border border-[#E63946] px-1.5 font-bold rounded">TELEGRAM</span>
+              <span className="text-[8px] font-mono bg-[#E63946]/10 text-[#E63946] border border-[#E63946] px-1.5 font-bold">
+                TELEGRAM
+              </span>
             </div>
-            <p className="text-[9px] text-[#1A1A1A]/70 mb-2">
-              Usa <code className="bg-[#1A1A1A]/10 px-1 font-mono font-bold rounded">{`{texto_telegram}`}</code> para el contenido listo para enviar del JSON, o combina claves personalizadas.
+            <p className="text-[9px] text-[#1A1A1A]/70 leading-relaxed">
+              Usa{" "}
+              <code className="bg-[#1A1A1A]/10 px-1 font-mono font-bold">{`{texto_telegram}`}</code>{" "}
+              para el contenido listo del JSON, o combina claves como{" "}
+              <code className="bg-[#1A1A1A]/10 px-1 font-mono font-bold">{`{fuente_nombre}`}</code>,{" "}
+              <code className="bg-[#1A1A1A]/10 px-1 font-mono font-bold">{`{fuente_url}`}</code>,{" "}
+              <code className="bg-[#1A1A1A]/10 px-1 font-mono font-bold">{`{categoria}`}</code>.
             </p>
             <textarea
               value={template}
               onChange={(e) => setTemplate(e.target.value)}
-              className="flex-1 min-h-[180px] border-2 border-[#1A1A1A] bg-[#FDFDFD] p-3 font-mono text-xs outline-none resize-none shadow-[3px_3px_0_#1A1A1A] focus:translate-x-[-1px] focus:translate-y-[-1px] focus:shadow-[4px_4px_0_#1A1A1A] transition-all"
+              className="flex-1 min-h-[180px] border-2 border-[#1A1A1A] bg-[#FDFDFD] p-3 font-mono text-xs outline-none resize-none shadow-[3px_3px_0_#1A1A1A] focus:-translate-x-px focus:-translate-y-px focus:shadow-[4px_4px_0_#1A1A1A] transition-all"
             />
           </div>
         </section>
 
-        {/* Center Column: List of items */}
-        <section className="lg:col-span-6 border-b-4 lg:border-b-0 lg:border-r-4 border-[#1A1A1A] flex flex-col overflow-hidden bg-[#FAF9F5]">
-          
-          {/* Header and Bulk Actions */}
-          <div className="p-4 border-b-2 border-[#1A1A1A] bg-[#F0EFEB] space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-[9px] font-mono opacity-50 uppercase tracking-wider">Posts Cargados</h2>
-                <h1 className="text-lg font-black uppercase tracking-tight flex items-center gap-1.5">
-                  <FileText className="w-5 h-5" /> 
-                  {entries.length > 0 ? `${entries.length} publicaciones listas` : "Bandeja vacía"}
+        {/* ── Center Column: List of items ── */}
+        <section className="lg:col-span-6 border-b-4 lg:border-b-0 lg:border-r-4 border-[#1A1A1A] flex flex-col min-h-0 bg-[#FAF9F5]">
+
+          {/* Toolbar */}
+          <div className="p-4 border-b-2 border-[#1A1A1A] bg-[#F0EFEB] space-y-3 shrink-0">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-[9px] font-mono opacity-50 uppercase tracking-wider">Posts Cargados</p>
+                <h1 className="text-lg font-black uppercase tracking-tight flex items-center gap-1.5 truncate">
+                  <FileText className="w-5 h-5 shrink-0" />
+                  {entries.length > 0 ? `${entries.length} publicaciones` : "Bandeja vacía"}
                 </h1>
               </div>
-              
+
               {entries.length > 0 && (
-                <div className="flex gap-2">
+                <div className="flex gap-2 shrink-0">
                   <button
-                    onClick={selectAll}
-                    className="border-2 border-[#1A1A1A] bg-white px-3 py-1.5 text-[10px] font-black uppercase hover:bg-[#F0EFEB] hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-[2px_2px_0_#1A1A1A] transition-all shadow-[1px_1px_0_#1A1A1A]"
+                    onClick={selectAllFiltered}
+                    className="border-2 border-[#1A1A1A] bg-white px-3 py-1.5 text-[10px] font-black uppercase hover:bg-[#F0EFEB] hover:-translate-x-px hover:-translate-y-px hover:shadow-[2px_2px_0_#1A1A1A] transition-all shadow-[1px_1px_0_#1A1A1A] whitespace-nowrap"
                   >
-                    {selected.size === filteredEntries.length && filteredEntries.length > 0 ? "Deseleccionar" : "Seleccionar Todo"}
+                    {filteredIndices.every((idx) => selected.has(idx)) && filteredIndices.length > 0
+                      ? "Deseleccionar"
+                      : "Sel. Todo"}
                   </button>
                   <button
                     onClick={sendSelected}
                     disabled={sending || selected.size === 0}
-                    className="border-2 border-[#1A1A1A] bg-[#457B9D] text-white px-3 py-1.5 text-[10px] font-black uppercase hover:bg-[#3B6B8A] hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-[2px_2px_0_#1A1A1A] transition-all shadow-[1px_1px_0_#1A1A1A] disabled:opacity-40 disabled:pointer-events-none"
+                    className="border-2 border-[#1A1A1A] bg-[#457B9D] text-white px-3 py-1.5 text-[10px] font-black uppercase hover:bg-[#3B6B8A] hover:-translate-x-px hover:-translate-y-px hover:shadow-[2px_2px_0_#1A1A1A] transition-all shadow-[1px_1px_0_#1A1A1A] disabled:opacity-40 disabled:pointer-events-none flex items-center gap-1 whitespace-nowrap"
                   >
-                    <div className="flex items-center gap-1">
-                      <Send className="w-3.5 h-3.5" /> Enviar {selected.size > 0 ? `(${selected.size})` : ""}
-                    </div>
+                    <Send className="w-3.5 h-3.5" />
+                    {sending ? "Enviando..." : `Enviar${selected.size > 0 ? ` (${selected.size})` : ""}`}
                   </button>
                 </div>
               )}
             </div>
 
-            {/* Search and Filters */}
             {entries.length > 0 && (
               <div className="space-y-2">
+                {/* Search */}
                 <div className="relative">
                   <input
                     type="text"
-                    placeholder="Buscar por título, contenido o etiquetas..."
+                    placeholder="Buscar por título, contenido o etiqueta..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className="w-full bg-white border-2 border-[#1A1A1A] text-xs py-1.5 pl-8 pr-2 outline-none font-mono placeholder:text-[#1A1A1A]/40"
+                    className="w-full bg-white border-2 border-[#1A1A1A] text-xs py-1.5 pl-8 pr-7 outline-none font-mono placeholder:text-[#1A1A1A]/40"
                   />
-                  <Search className="w-4 h-4 absolute left-2.5 top-2 text-[#1A1A1A]/40" />
+                  <Search className="w-4 h-4 absolute left-2.5 top-2 text-[#1A1A1A]/40 pointer-events-none" />
                   {search && (
-                    <button 
-                      onClick={() => setSearch("")} 
-                      className="absolute right-2 top-2 text-[#1A1A1A]/40 hover:text-[#1A1A1A]"
+                    <button
+                      onClick={() => setSearch("")}
+                      className="absolute right-2 top-2 text-[#1A1A1A]/40 hover:text-[#1A1A1A] transition-colors"
+                      aria-label="Limpiar búsqueda"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   )}
                 </div>
 
-                {/* Category tags filter */}
+                {/* Category filter pills */}
                 {categories.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                    <span className="text-[9px] font-black uppercase tracking-wider text-[#1A1A1A]/50 mr-1 flex items-center gap-0.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-[#1A1A1A]/50 flex items-center gap-0.5 mr-1">
                       <Filter className="w-3 h-3" /> Filtrar:
                     </span>
                     <button
@@ -473,33 +483,41 @@ export default function App() {
             )}
           </div>
 
-          {/* List items */}
+          {/* Entry list */}
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
             {entries.length === 0 ? (
-              <div className="p-8 text-center bg-white border-2 border-dashed border-[#1A1A1A]/20 shadow-[3px_3px_0_rgba(0,0,0,0.05)] rounded-lg">
+              <div className="p-8 text-center bg-white border-2 border-dashed border-[#1A1A1A]/20">
                 <p className="font-mono text-xs opacity-50">
                   {fetching ? "Descargando publicaciones..." : "No hay publicaciones cargadas."}
                 </p>
                 {!fetching && (
                   <p className="font-mono text-[10px] opacity-40 mt-1">
-                    Pega una URL válida de Drive y haz clic en Descargar.
+                    Pega una URL de Drive en el panel izquierdo y haz clic en Descargar JSON.
                   </p>
                 )}
               </div>
             ) : filteredEntries.length === 0 ? (
               <div className="p-8 text-center bg-white border-2 border-[#1A1A1A] shadow-[4px_4px_0_#1A1A1A]">
                 <p className="font-mono text-xs opacity-50">Ninguna publicación coincide con la búsqueda.</p>
+                <button
+                  onClick={() => { setSearch(""); setSelectedCategory(null); }}
+                  className="mt-2 text-[10px] font-black uppercase text-[#457B9D] hover:underline"
+                >
+                  Limpiar filtros
+                </button>
               </div>
             ) : (
-              filteredEntries.map((entry, idx) => {
-                const originalIndex = entries.indexOf(entry);
+              filteredEntries.map((entry, _visibleIdx) => {
+                const originalIndex = filteredIndices[_visibleIdx];
                 const previewText = fillTemplate(template, entry);
-                
+
                 return (
                   <div
                     key={originalIndex}
-                    className={`border-2 border-[#1A1A1A] p-4 transition-all duration-200 bg-white shadow-[4px_4px_0_#1A1A1A] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[6px_6px_0_#1A1A1A] ${
-                      selected.has(originalIndex) ? "bg-[#FFD166]/10 border-[#FFD166]" : ""
+                    className={`relative border-2 p-4 transition-all duration-200 bg-white shadow-[4px_4px_0_#1A1A1A] hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[6px_6px_0_#1A1A1A] ${
+                      selected.has(originalIndex)
+                        ? "border-[#FFD166] bg-[#FFF9E6]"
+                        : "border-[#1A1A1A]"
                     }`}
                   >
                     <div className="flex items-start gap-3">
@@ -507,64 +525,76 @@ export default function App() {
                         type="checkbox"
                         checked={selected.has(originalIndex)}
                         onChange={() => toggleSelect(originalIndex)}
-                        className="mt-1 w-4 h-4 cursor-pointer accent-[#1A1A1A] border-2 border-[#1A1A1A]"
+                        className="mt-1 w-4 h-4 cursor-pointer accent-[#1A1A1A] shrink-0"
                       />
-                      
+
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <h3 className="font-black text-sm truncate uppercase tracking-tight text-[#1A1A1A]">
+                        {/* Title + category */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <h3 className="font-black text-sm uppercase tracking-tight text-[#1A1A1A] leading-tight">
                             {entry.title || "Sin título"}
                           </h3>
                           {entry.category && (
-                            <span className="bg-[#457B9D]/10 text-[#457B9D] border border-[#457B9D] px-2 py-0.5 text-[8px] font-black uppercase rounded">
-                              {entry.category.replace(/_/g, " ")}
+                            <span className="shrink-0 bg-[#457B9D]/10 text-[#457B9D] border border-[#457B9D] px-2 py-0.5 text-[8px] font-black uppercase">
+                              {(entry.category as string).replace(/_/g, " ")}
                             </span>
                           )}
                         </div>
 
-                        <p className="text-xs opacity-80 mt-1 line-clamp-3 font-mono bg-gray-50 p-2 border border-[#1A1A1A]/10">
+                        {/* Summary */}
+                        <p className="text-xs opacity-70 mt-1 line-clamp-2 font-mono">
                           {entry.summary || ""}
                         </p>
 
-                        <div className="flex items-center justify-between mt-3 pt-2 border-t border-[#1A1A1A]/10">
-                          <div className="flex gap-2">
-                            {entry.link && (
-                              <a
-                                href={entry.link}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-blue-600 text-[10px] font-bold hover:underline flex items-center gap-0.5 truncate max-w-[200px]"
-                              >
-                                <ExternalLink className="w-3 h-3" /> Ver fuente
-                              </a>
-                            )}
-                          </div>
+                        {/* Actions row */}
+                        <div className="flex items-center justify-between mt-3 pt-2 border-t border-[#1A1A1A]/10 flex-wrap gap-2">
+                          {entry.link && (
+                            <a
+                              href={entry.link as string}
+                              target="_blank"
+                              rel="noreferrer noopener"
+                              className="text-blue-600 text-[10px] font-bold hover:underline flex items-center gap-0.5"
+                            >
+                              <ExternalLink className="w-3 h-3" /> Ver fuente
+                            </a>
+                          )}
 
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 ml-auto">
+                            {/* Copy button */}
                             <button
                               onClick={() => handleCopyToClipboard(previewText, originalIndex)}
-                              className="border border-[#1A1A1A] bg-white px-2 py-1 text-[9px] font-black uppercase tracking-wider flex items-center gap-1 hover:bg-[#1A1A1A]/5 shadow-[1px_1px_0_#1A1A1A]"
+                              className="border border-[#1A1A1A] bg-white px-2 py-1 text-[9px] font-black uppercase tracking-wider flex items-center gap-1 hover:bg-[#1A1A1A]/5 shadow-[1px_1px_0_#1A1A1A] transition-all"
                             >
                               {copiedIndex === originalIndex ? (
-                                <>
-                                  <Check className="w-3 h-3 text-green-700" /> Copiado
-                                </>
+                                <><Check className="w-3 h-3 text-green-700" /> Copiado</>
                               ) : (
-                                <>
-                                  <Copy className="w-3 h-3" /> Copiar Formato
-                                </>
+                                <><Copy className="w-3 h-3" /> Copiar</>
                               )}
                             </button>
-                            <details className="inline-block">
-                              <summary className="border border-[#1A1A1A] bg-white px-2 py-1 text-[9px] font-black uppercase tracking-wider cursor-pointer list-none flex items-center gap-1 hover:bg-[#1A1A1A]/5 shadow-[1px_1px_0_#1A1A1A]">
-                                <Eye className="w-3 h-3" /> Vista Previa
-                              </summary>
-                              <pre className="absolute mt-2 left-0 right-0 mx-4 z-10 bg-white border-2 border-[#1A1A1A] p-3 text-[9px] font-mono whitespace-pre-wrap shadow-[5px_5px_0_#1A1A1A] max-h-[160px] overflow-y-auto">
-                                {previewText}
-                              </pre>
-                            </details>
+
+                            {/* Preview toggle */}
+                            <button
+                              onClick={() =>
+                                setPreviewOpen(previewOpen === originalIndex ? null : originalIndex)
+                              }
+                              className={`border border-[#1A1A1A] px-2 py-1 text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shadow-[1px_1px_0_#1A1A1A] transition-all ${
+                                previewOpen === originalIndex
+                                  ? "bg-[#1A1A1A] text-white"
+                                  : "bg-white hover:bg-[#1A1A1A]/5"
+                              }`}
+                            >
+                              <Eye className="w-3 h-3" />
+                              {previewOpen === originalIndex ? "Cerrar" : "Vista Previa"}
+                            </button>
                           </div>
                         </div>
+
+                        {/* Inline preview panel (no absolute positioning) */}
+                        {previewOpen === originalIndex && (
+                          <pre className="mt-3 border-2 border-[#1A1A1A] bg-[#FFFBE6] p-3 text-[9px] font-mono whitespace-pre-wrap shadow-[3px_3px_0_#1A1A1A] max-h-[200px] overflow-y-auto">
+                            {previewText}
+                          </pre>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -574,12 +604,12 @@ export default function App() {
           </div>
         </section>
 
-        {/* Right Column: Telegram Config */}
+        {/* ── Right Column: Telegram Config ── */}
         <section className="lg:col-span-3 flex flex-col bg-white overflow-y-auto">
-          
-          <div className="p-4 border-b-2 border-[#1A1A1A] bg-[#FFD166] flex items-center gap-2">
+
+          <div className="p-4 border-b-2 border-[#1A1A1A] bg-[#FFD166] flex items-center gap-2 shrink-0">
             <Bot className="w-5 h-5" />
-            <h1 className="text-md font-black uppercase tracking-tight">Integraciones</h1>
+            <h2 className="text-md font-black uppercase tracking-tight">Integraciones</h2>
           </div>
 
           <div className="p-4 bg-[#1A1A1A] text-white flex-1 space-y-5">
@@ -595,8 +625,9 @@ export default function App() {
                   type="password"
                   value={config.botToken}
                   onChange={(e) => setConfig({ ...config, botToken: e.target.value })}
-                  className="w-full bg-transparent border-b-2 border-white/30 text-xs py-1.5 font-mono outline-none text-[#FFD166] focus:border-[#FFD166] transition-colors"
-                  placeholder="Introducir token del bot"
+                  className="w-full bg-transparent border-b-2 border-white/30 text-xs py-1.5 font-mono outline-none text-[#FFD166] focus:border-[#FFD166] transition-colors placeholder:text-white/20"
+                  placeholder="123456:ABC-..."
+                  autoComplete="off"
                 />
               </div>
 
@@ -606,31 +637,31 @@ export default function App() {
                   type="text"
                   value={config.channelId}
                   onChange={(e) => setConfig({ ...config, channelId: e.target.value })}
-                  className="w-full bg-transparent border-b-2 border-white/30 text-xs py-1.5 font-mono outline-none text-[#FFD166] focus:border-[#FFD166] transition-colors"
+                  className="w-full bg-transparent border-b-2 border-white/30 text-xs py-1.5 font-mono outline-none text-[#FFD166] focus:border-[#FFD166] transition-colors placeholder:text-white/20"
                   placeholder="@mi_canal o -100123456789"
                 />
-                <span className="text-[8px] text-white/40 block mt-1 leading-normal">
-                  Ejemplo: <b>@mi_canal</b> (público) o <b>-100192837465</b> (privado).
+                <span className="text-[8px] text-white/40 block mt-1 leading-relaxed">
+                  Canales públicos: <b>@nombre</b> &mdash; Canales privados: <b>-100XXXXXXXXXX</b>
                 </span>
               </div>
 
               <button
                 onClick={handleSaveBotConfig}
                 disabled={testingBot}
-                className="w-full border-2 border-[#FFD166] py-2 text-[10px] font-black uppercase text-[#FFD166] hover:bg-[#FFD166] hover:text-[#1A1A1A] hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-[3px_3px_0_rgba(255,209,102,0.4)] transition-all disabled:opacity-40 shadow-[1px_1px_0_rgba(255,209,102,0.2)]"
+                className="w-full border-2 border-[#FFD166] py-2 text-[10px] font-black uppercase text-[#FFD166] hover:bg-[#FFD166] hover:text-[#1A1A1A] hover:-translate-x-px hover:-translate-y-px transition-all disabled:opacity-40 disabled:pointer-events-none"
               >
-                {testingBot ? "Verificando..." : "Guardar y Validar"}
+                {testingBot ? "Verificando token..." : "Guardar y Validar"}
               </button>
             </div>
 
-            {/* Informative instructions */}
-            <div className="bg-white/5 border border-white/10 p-3 rounded text-[9px] space-y-2 font-mono leading-relaxed text-white/70">
-              <span className="font-bold text-[#FFD166] block uppercase tracking-wide">¿Cómo conseguir el ID?</span>
-              <ul className="list-disc pl-4 space-y-1">
-                <li>Agrega el bot a tu canal como <b>Administrador</b>.</li>
-                <li>Para canales públicos, usa el alias (ej: @mi_canal).</li>
-                <li>Para canales privados, reenvía un post del canal a un bot como <i>@RawDataBot</i> para obtener el ID numérico que inicia con <b>-100</b>.</li>
-              </ul>
+            {/* Help box */}
+            <div className="bg-white/5 border border-white/10 p-3 text-[9px] space-y-2 font-mono leading-relaxed text-white/70">
+              <span className="font-bold text-[#FFD166] block uppercase tracking-wide">¿Cómo configurar?</span>
+              <ol className="list-decimal pl-4 space-y-1">
+                <li>Crea un bot con <b>@BotFather</b> y copia el token.</li>
+                <li>Agrega el bot a tu canal como <b>Administrador</b> con permiso de publicación.</li>
+                <li>Para canales privados, reenvía un mensaje a <i>@RawDataBot</i> y copia el <b>chat id</b> (comienza con <b>-100</b>).</li>
+              </ol>
             </div>
           </div>
         </section>
@@ -638,9 +669,18 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <footer className="h-10 border-t-2 border-[#1A1A1A] flex items-center px-6 justify-between bg-white text-[9px] font-black uppercase tracking-wider">
-        <span>Estado: {sending ? "Enviando publicaciones..." : fetching ? "Cargando JSON..." : "Listo"}</span>
-        <span>Entradas: {entries.length} | Seleccionados: {selected.size}</span>
+      <footer className="h-10 border-t-2 border-[#1A1A1A] flex items-center px-6 justify-between bg-white text-[9px] font-black uppercase tracking-wider shrink-0">
+        <span>Estado: {sending ? "Enviando..." : fetching ? "Cargando JSON..." : "Listo"}</span>
+        <span>
+          {entries.length > 0 && (
+            <>
+              {filteredEntries.length < entries.length
+                ? `${filteredEntries.length} / ${entries.length} visibles`
+                : `${entries.length} entradas`}
+              {selected.size > 0 && ` · ${selected.size} seleccionadas`}
+            </>
+          )}
+        </span>
       </footer>
     </div>
   );
@@ -648,12 +688,12 @@ export default function App() {
 
 function fillTemplate(template: string, entry: DriveEntry): string {
   return template
-    .replace(/\{texto_telegram\}/g, String(entry.texto_telegram || entry.summary || ""))
-    .replace(/\{fuente_nombre\}/g, String(entry.fuente_nombre || entry.title || ""))
-    .replace(/\{fuente_url\}/g, String(entry.fuente_url || entry.link || ""))
-    .replace(/\{categoria\}/g, String(entry.categoria || entry.category || ""))
-    .replace(/\{title\}/g, String(entry.title || entry.fuente_nombre || ""))
-    .replace(/\{summary\}/g, String(entry.summary || entry.texto_telegram || ""))
-    .replace(/\{link\}/g, String(entry.link || entry.fuente_url || ""))
-    .replace(/\{category\}/g, String(entry.category || entry.categoria || ""));
+    .replace(/\{texto_telegram\}/g, String(entry.texto_telegram ?? entry.summary ?? ""))
+    .replace(/\{fuente_nombre\}/g, String(entry.fuente_nombre ?? entry.title ?? ""))
+    .replace(/\{fuente_url\}/g, String(entry.fuente_url ?? entry.link ?? ""))
+    .replace(/\{categoria\}/g, String(entry.categoria ?? entry.category ?? ""))
+    .replace(/\{title\}/g, String(entry.title ?? entry.fuente_nombre ?? ""))
+    .replace(/\{summary\}/g, String(entry.summary ?? entry.texto_telegram ?? ""))
+    .replace(/\{link\}/g, String(entry.link ?? entry.fuente_url ?? ""))
+    .replace(/\{category\}/g, String(entry.category ?? entry.categoria ?? ""));
 }
