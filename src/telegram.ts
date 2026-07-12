@@ -2,10 +2,14 @@ import type { DriveEntry } from "./drive.js";
 
 function fillTemplate(template: string, entry: DriveEntry): string {
   return template
-    .replace(/\{title\}/g, entry.title || "")
-    .replace(/\{summary\}/g, entry.summary || "")
-    .replace(/\{link\}/g, entry.link || "")
-    .replace(/\{category\}/g, entry.category || "");
+    .replace(/\{texto_telegram\}/g, String(entry.texto_telegram || entry.summary || ""))
+    .replace(/\{fuente_nombre\}/g, String(entry.fuente_nombre || entry.title || ""))
+    .replace(/\{fuente_url\}/g, String(entry.fuente_url || entry.link || ""))
+    .replace(/\{categoria\}/g, String(entry.categoria || entry.category || ""))
+    .replace(/\{title\}/g, String(entry.title || entry.fuente_nombre || ""))
+    .replace(/\{summary\}/g, String(entry.summary || entry.texto_telegram || ""))
+    .replace(/\{link\}/g, String(entry.link || entry.fuente_url || ""))
+    .replace(/\{category\}/g, String(entry.category || entry.categoria || ""));
 }
 
 export async function sendToTelegram(
