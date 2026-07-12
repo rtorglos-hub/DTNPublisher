@@ -1,82 +1,36 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { useState, useEffect } from 'react';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { db, auth } from './lib/firebase';
-import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
-
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
 
 export default function App() {
   const [botToken, setBotToken] = useState('');
   const [channelId, setChannelId] = useState('');
   const [driveUrl, setDriveUrl] = useState('');
-  const [user, setUser] = useState(auth.currentUser);
   const [loading, setLoading] = useState(false);
-  const [loadingDrive, setLoadingDrive] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        fetchConfig(currentUser.uid);
-      }
-    });
-    return unsubscribe;
+    fetch('/api/config')
+      .then(res => res.json())
+      .then(data => {
+        setBotToken(data.botToken || '');
+        setChannelId(data.channelId || '');
+        setDriveUrl(data.driveUrl || '');
+      });
   }, []);
 
-  const fetchConfig = async (uid: string) => {
-    const docRef = doc(db, 'botConfig', uid);
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-      const data = docSnap.data();
-      setBotToken(data.botToken || '');
-      setChannelId(data.channelId || '');
-      setDriveUrl(data.driveUrl || '');
-    }
-  };
-
-  const handleSaveBot = async () => {
-    if (!user) return;
+  const handleSave = async (data: any) => {
     setLoading(true);
     try {
-      await setDoc(doc(db, 'botConfig', user.uid), { botToken, channelId, driveUrl }, { merge: true });
-      alert('Configuración del bot guardada exitosamente');
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      alert('Configuración guardada exitosamente');
     } catch (e) {
       console.error(e);
       alert('Error al guardar');
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleSaveDrive = async () => {
-    if (!user) return;
-    setLoadingDrive(true);
-    try {
-      await setDoc(doc(db, 'botConfig', user.uid), { botToken, channelId, driveUrl }, { merge: true });
-      alert('URL de Drive guardada exitosamente');
-    } catch (e) {
-      console.error(e);
-      alert('Error al guardar');
-    } finally {
-      setLoadingDrive(false);
-    }
-  };
-
-  const handleLogin = () => {
-    signInWithPopup(auth, new GoogleAuthProvider());
   };
 
   return (
@@ -89,14 +43,9 @@ export default function App() {
             BOT STATUS: ONLINE [v2.4.1]
           </div>
         </div>
-        <div className="flex gap-6 text-[11px] font-bold uppercase tracking-widest">
-          <span>Session: 04:12:03</span>
-          <span className="opacity-50">ID: TG_7729_AF</span>
-        </div>
       </header>
 
       <main className="flex-1 grid grid-cols-1 md:grid-cols-12 overflow-y-auto md:overflow-hidden">
-        {/* Column 1: News Feed (Fetched from Drive) */}
         <section className="col-span-1 md:col-span-4 border-b md:border-b-0 md:border-r border-[#141414] flex flex-col overflow-hidden bg-white/50">
           <div className="p-4 border-b border-[#141414] flex justify-between items-end bg-[#E4E3E0]">
             <div>
@@ -107,16 +56,12 @@ export default function App() {
           <div className="p-4 border-b border-[#141414]">
             <label className="block text-[9px] uppercase opacity-40 mb-1">Drive URL</label>
             <input type="text" value={driveUrl} onChange={e => setDriveUrl(e.target.value)} className="w-full bg-white border border-[#141414] text-xs py-1 px-2 font-mono outline-none mb-2" placeholder="https://drive.google.com/..." />
-            <button onClick={handleSaveDrive} disabled={loadingDrive} className="w-full border border-[#141414] py-1 text-[10px] font-bold hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors">
-              {loadingDrive ? 'Saving...' : 'Save Drive URL'}
+            <button onClick={() => handleSave({ botToken, channelId, driveUrl })} disabled={loading} className="w-full border border-[#141414] py-1 text-[10px] font-bold hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors">
+              {loading ? 'Saving...' : 'Save Drive URL'}
             </button>
-          </div>
-          <div className="flex-1 overflow-y-auto font-mono text-[11px] p-4 text-center">
-             <p>Connect your Google Drive and set the URL to fetch news.</p>
           </div>
         </section>
 
-        {/* Column 2: Editor & Template */}
         <section className="col-span-1 md:col-span-5 border-b md:border-b-0 md:border-r border-[#141414] flex flex-col overflow-hidden">
           <div className="p-4 border-b border-[#141414] bg-[#E4E3E0]">
             <h2 className="text-[10px] font-mono opacity-60 uppercase">Message Editor</h2>
@@ -137,50 +82,33 @@ export default function App() {
           </div>
         </section>
 
-        {/* Column 3: Scheduler & Bot Config */}
         <section className="col-span-1 md:col-span-3 flex flex-col overflow-hidden">
           <div className="p-4 border-b border-[#141414] bg-[#E4E3E0]">
             <h2 className="text-[10px] font-mono opacity-60 uppercase">Automation</h2>
             <h1 className="text-xl font-serif italic">Scheduling</h1>
           </div>
-          
-          <div className="p-4 border-b border-[#141414] flex-1 overflow-y-auto">
-             <p className="text-[10px] font-mono opacity-60">Configure your posting schedule here.</p>
-          </div>
-
           <div className="p-4 bg-[#141414] text-[#E4E3E0] h-[300px]">
             <h3 className="text-[10px] font-bold uppercase mb-4 opacity-50">Telegram Integration</h3>
-            {user ? (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-[9px] uppercase opacity-40 mb-1">Bot Token</label>
-                  <input type="password" value={botToken} onChange={e => setBotToken(e.target.value)} className="w-full bg-transparent border-b border-[#E4E3E0]/30 text-xs py-1 font-mono outline-none" />
-                </div>
-                <div>
-                  <label className="block text-[9px] uppercase opacity-40 mb-1">Channel ID</label>
-                  <input type="text" value={channelId} onChange={e => setChannelId(e.target.value)} className="w-full bg-transparent border-b border-[#E4E3E0]/30 text-xs py-1 font-mono outline-none" />
-                </div>
-                <button onClick={handleSaveBot} disabled={loading} className="w-full border border-[#E4E3E0] py-2 text-[10px] font-bold hover:bg-[#E4E3E0] hover:text-[#141414] transition-all">
-                  {loading ? 'Saving...' : 'Save Bot Config'}
-                </button>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[9px] uppercase opacity-40 mb-1">Bot Token</label>
+                <input type="password" value={botToken} onChange={e => setBotToken(e.target.value)} className="w-full bg-transparent border-b border-[#E4E3E0]/30 text-xs py-1 font-mono outline-none" />
               </div>
-            ) : (
-              <button onClick={handleLogin} className="w-full border border-[#E4E3E0] py-2 text-[10px] font-bold hover:bg-[#E4E3E0] hover:text-[#141414] transition-all">
-                Login with Google
+              <div>
+                <label className="block text-[9px] uppercase opacity-40 mb-1">Channel ID</label>
+                <input type="text" value={channelId} onChange={e => setChannelId(e.target.value)} className="w-full bg-transparent border-b border-[#E4E3E0]/30 text-xs py-1 font-mono outline-none" />
+              </div>
+              <button onClick={() => handleSave({ botToken, channelId, driveUrl })} disabled={loading} className="w-full border border-[#E4E3E0] py-2 text-[10px] font-bold hover:bg-[#E4E3E0] hover:text-[#141414] transition-all">
+                {loading ? 'Saving...' : 'Save Bot Config'}
               </button>
-            )}
+            </div>
           </div>
         </section>
       </main>
 
-      {/* Footer Bar */}
       <footer className="h-8 border-t border-[#141414] flex items-center px-6 justify-between bg-white text-[9px] font-mono uppercase tracking-widest">
-        <div className="flex gap-4">
-          <span>Status: Idle</span>
-        </div>
-        <div>
-          <span>System Time: {new Date().toISOString()}</span>
-        </div>
+        <span>Status: Idle</span>
+        <span>System Time: {new Date().toISOString()}</span>
       </footer>
     </div>
   );

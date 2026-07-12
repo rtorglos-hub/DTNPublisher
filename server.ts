@@ -11,7 +11,19 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Simple in-memory storage for development (simulating D1/database)
+  let config = { botToken: '', channelId: '', driveUrl: '' };
+
   // API routes
+  app.get("/api/config", (req, res) => {
+    res.json(config);
+  });
+
+  app.post("/api/config", (req, res) => {
+    config = req.body;
+    res.json({ status: "ok" });
+  });
+
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
   });
