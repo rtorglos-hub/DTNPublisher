@@ -1,0 +1,6 @@
+{
+  "name": "DTN Publisher",
+  "description": "Schedule and publish news from Google Drive to Telegram.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
