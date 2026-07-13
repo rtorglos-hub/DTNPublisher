@@ -54,15 +54,16 @@ export interface AppConfig {
   scheduleStart?: string;
   scheduleEnd?: string;
   scheduleTimezone?: string;
+  autoDeleteDays?: number;
 }
 
 export async function getConfig(): Promise<AppConfig> {
   const result = await query(
-    "SELECT bot_token, channel_id, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone FROM config WHERE id = 1"
+    "SELECT bot_token, channel_id, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone, auto_delete_days FROM config WHERE id = 1"
   );
 
   if (result.results.length === 0) {
-    return { botToken: "", channelId: "", driveUrl: "", scheduleDays: "", scheduleStart: "", scheduleEnd: "", scheduleTimezone: "Europe/Madrid" };
+    return { botToken: "", channelId: "", driveUrl: "", scheduleDays: "", scheduleStart: "", scheduleEnd: "", scheduleTimezone: "Europe/Madrid", autoDeleteDays: 10 };
   }
 
   const row = result.results[0];
@@ -74,13 +75,14 @@ export async function getConfig(): Promise<AppConfig> {
     scheduleStart: (row.schedule_start as string) || "",
     scheduleEnd: (row.schedule_end as string) || "",
     scheduleTimezone: (row.schedule_timezone as string) || "Europe/Madrid",
+    autoDeleteDays: row.auto_delete_days !== null && row.auto_delete_days !== undefined ? Number(row.auto_delete_days) : 10,
   };
 }
 
 export async function saveConfig(config: AppConfig): Promise<void> {
   await query(
-    `INSERT INTO config (id, bot_token, channel_id, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone, updated_at)
-     VALUES (1, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `INSERT INTO config (id, bot_token, channel_id, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone, auto_delete_days, updated_at)
+     VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        bot_token = excluded.bot_token,
        channel_id = excluded.channel_id,
@@ -89,6 +91,7 @@ export async function saveConfig(config: AppConfig): Promise<void> {
        schedule_start = excluded.schedule_start,
        schedule_end = excluded.schedule_end,
        schedule_timezone = excluded.schedule_timezone,
+       auto_delete_days = excluded.auto_delete_days,
        updated_at = datetime('now')`,
     [
       config.botToken || "",
@@ -98,6 +101,7 @@ export async function saveConfig(config: AppConfig): Promise<void> {
       config.scheduleStart || "",
       config.scheduleEnd || "",
       config.scheduleTimezone || "Europe/Madrid",
+      config.autoDeleteDays !== undefined ? Number(config.autoDeleteDays) : 10,
     ]
   );
 }

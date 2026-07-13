@@ -7,7 +7,7 @@ export default {
     try {
       // 1. Fetch configuration from DB
       const { results } = await env.DB.prepare(
-        "SELECT bot_token, channel_id, schedule_days, schedule_start, schedule_end, schedule_timezone FROM config WHERE id = 1"
+        "SELECT bot_token, channel_id, schedule_days, schedule_start, schedule_end, schedule_timezone, auto_delete_days FROM config WHERE id = 1"
       ).all<{
         bot_token: string;
         channel_id: string;
@@ -15,6 +15,7 @@ export default {
         schedule_start: string | null;
         schedule_end: string | null;
         schedule_timezone: string | null;
+        auto_delete_days: number | null;
       }>();
 
       if (!results || results.length === 0) {
@@ -22,6 +23,20 @@ export default {
       }
 
       const config = results[0];
+
+      // Perform auto-delete of sent posts if configured
+      const autoDeleteDays = config.auto_delete_days;
+      if (autoDeleteDays !== null && autoDeleteDays !== undefined && autoDeleteDays > 0) {
+        try {
+          const deleteResult = await env.DB.prepare(
+            "DELETE FROM scheduled_posts WHERE status = 'sent' AND sent_at < datetime('now', ?)"
+          ).bind(`-${autoDeleteDays} days`).run();
+          console.log(`[Scheduler] Auto-cleanup of sent posts older than ${autoDeleteDays} days completed. Rows affected: ${deleteResult.meta.changes}`);
+        } catch (cleanupErr) {
+          console.error("[Scheduler] Error during auto-cleanup of sent posts:", cleanupErr);
+        }
+      }
+
       if (!config.bot_token || !config.channel_id || !config.schedule_days) {
         return;
       }

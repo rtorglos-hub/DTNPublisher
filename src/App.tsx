@@ -32,6 +32,7 @@ interface AppConfig {
   scheduleStart?: string;
   scheduleEnd?: string;
   scheduleTimezone?: string;
+  autoDeleteDays?: number;
 }
 
 interface DriveEntry {
@@ -51,8 +52,19 @@ interface Toast {
 }
 
 export default function App() {
-  const [config, setConfig] = useState<AppConfig>({ botToken: "", channelId: "", driveUrl: "" });
-  const [entries, setEntries] = useState<DriveEntry[]>([]);
+  const [config, setConfig] = useState<AppConfig>({ botToken: "", channelId: "", driveUrl: "", autoDeleteDays: 10 });
+  const [entries, setEntries] = useState<DriveEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem("dtn_inbox_entries");
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem("dtn_inbox_entries", JSON.stringify(entries));
+  }, [entries]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [dbConnected, setDbConnected] = useState(false);
   const [fetching, setFetching] = useState(false);
@@ -77,6 +89,8 @@ export default function App() {
   const [fetchingQueue, setFetchingQueue] = useState(false);
   const [scheduling, setScheduling] = useState(false);
 
+  const [autoDeleteDays, setAutoDeleteDays] = useState<number>(10);
+
   // Sync config values with local form states
   useEffect(() => {
     if (config) {
@@ -84,6 +98,7 @@ export default function App() {
       setScheduleStart(config.scheduleStart || "10:00");
       setScheduleEnd(config.scheduleEnd || "18:00");
       setScheduleTimezone(config.scheduleTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Madrid");
+      setAutoDeleteDays(config.autoDeleteDays !== undefined ? config.autoDeleteDays : 10);
     }
   }, [config]);
 
@@ -375,6 +390,29 @@ export default function App() {
         showToast("Configuración de horario guardada con éxito.", "success", "Horario Guardado");
       } else {
         showToast("Error al guardar la configuración de horario.", "error", "Error de Guardado");
+      }
+    } catch (e) {
+      showToast(`Error de conexión: ${e}`, "error");
+    }
+  }
+
+  async function handleSaveAutoDeleteConfig() {
+    try {
+      const updatedConfig = {
+        ...config,
+        autoDeleteDays
+      };
+      
+      const r = await authenticatedFetch("/api/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedConfig),
+      });
+      if (r.ok) {
+        setConfig(updatedConfig);
+        showToast("Configuración de limpieza guardada con éxito.", "success", "Limpieza Guardada");
+      } else {
+        showToast("Error al guardar la configuración de limpieza.", "error", "Error de Guardado");
       }
     } catch (e) {
       showToast(`Error de conexión: ${e}`, "error");
@@ -1278,6 +1316,37 @@ export default function App() {
                 className="w-full border-2 border-[#FFD166] py-2 text-[10px] font-black uppercase bg-transparent text-[#FFD166] hover:bg-[#FFD166] hover:text-[#1A1A1A] hover:-translate-x-px hover:-translate-y-px transition-all cursor-pointer"
               >
                 Guardar Horario
+              </button>
+            </div>
+
+            {/* Limpieza Automática */}
+            <div className="pt-4 border-t border-white/20 mt-4 space-y-4">
+              <h3 className="text-xs font-black uppercase tracking-wider text-[#FFD166] border-b border-white/20 pb-2">
+                Limpieza Automática
+              </h3>
+
+              <div>
+                <label className="block text-[8px] uppercase font-black text-white/50 mb-1">
+                  Borrar posts enviados tras (días)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={autoDeleteDays}
+                  onChange={(e) => setAutoDeleteDays(Math.max(0, parseInt(e.target.value) || 0))}
+                  className="w-full bg-transparent border-b-2 border-white/30 text-xs py-1.5 font-mono outline-none text-[#FFD166] focus:border-[#FFD166] transition-colors"
+                  placeholder="Ej. 10 (0 para desactivar)"
+                />
+                <span className="text-[8px] text-white/40 block mt-1 leading-relaxed">
+                  Los posts con estado "Enviado" se borrarán de la base de datos automáticamente si pasaron más de estos días (usa 0 para desactivar).
+                </span>
+              </div>
+
+              <button
+                onClick={handleSaveAutoDeleteConfig}
+                className="w-full border-2 border-[#FFD166] py-2 text-[10px] font-black uppercase bg-transparent text-[#FFD166] hover:bg-[#FFD166] hover:text-[#1A1A1A] hover:-translate-x-px hover:-translate-y-px transition-all cursor-pointer"
+              >
+                Guardar Configuración de Limpieza
               </button>
             </div>
 

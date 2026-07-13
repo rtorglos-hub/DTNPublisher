@@ -10,6 +10,7 @@ export interface AppConfig {
   scheduleStart?: string;
   scheduleEnd?: string;
   scheduleTimezone?: string;
+  autoDeleteDays?: number;
 }
 
 export const onRequestGet: PagesFunction<Env> = async (context) => {
@@ -23,7 +24,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
   try {
     const { results } = await db
-      .prepare("SELECT bot_token, channel_id, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone FROM config WHERE id = 1")
+      .prepare("SELECT bot_token, channel_id, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone, auto_delete_days FROM config WHERE id = 1")
       .all<{
         bot_token: string;
         channel_id: string;
@@ -32,6 +33,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         schedule_start: string | null;
         schedule_end: string | null;
         schedule_timezone: string | null;
+        auto_delete_days: number | null;
       }>();
 
     if (!results || results.length === 0) {
@@ -44,6 +46,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
           scheduleStart: "",
           scheduleEnd: "",
           scheduleTimezone: "Europe/Madrid",
+          autoDeleteDays: 10,
         }),
         { headers: { "Content-Type": "application/json" } }
       );
@@ -59,6 +62,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         scheduleStart: row.schedule_start || "",
         scheduleEnd: row.schedule_end || "",
         scheduleTimezone: row.schedule_timezone || "Europe/Madrid",
+        autoDeleteDays: row.auto_delete_days !== null && row.auto_delete_days !== undefined ? Number(row.auto_delete_days) : 10,
       }),
       { headers: { "Content-Type": "application/json" } }
     );
@@ -84,8 +88,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     
     await db
       .prepare(
-        `INSERT INTO config (id, bot_token, channel_id, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone, updated_at)
-         VALUES (1, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        `INSERT INTO config (id, bot_token, channel_id, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone, auto_delete_days, updated_at)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
          ON CONFLICT(id) DO UPDATE SET
            bot_token = excluded.bot_token,
            channel_id = excluded.channel_id,
@@ -94,6 +98,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
            schedule_start = excluded.schedule_start,
            schedule_end = excluded.schedule_end,
            schedule_timezone = excluded.schedule_timezone,
+           auto_delete_days = excluded.auto_delete_days,
            updated_at = datetime('now')`
       )
       .bind(
@@ -103,7 +108,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         config.scheduleDays || "",
         config.scheduleStart || "",
         config.scheduleEnd || "",
-        config.scheduleTimezone || "Europe/Madrid"
+        config.scheduleTimezone || "Europe/Madrid",
+        config.autoDeleteDays !== undefined ? Number(config.autoDeleteDays) : 10
       )
       .run();
 

@@ -159,6 +159,20 @@ Haz un push al repositorio o dispara un deploy manual desde el panel para que lo
 
 ---
 
+## Worker Scheduler (Programador Cron)
+
+La aplicación utiliza un Cloudflare Worker adicional para ejecutar el programador de envíos de forma automática:
+- **URL del Worker:** `https://dtn-publisher-scheduler.retroregalos.workers.dev/`
+- **Proyecto:** Ubicado en la carpeta `worker-scheduler/`.
+- **Funcionamiento:** Se ejecuta mediante un disparador Cron cada 15 minutos (configurable en `worker-scheduler/wrangler.jsonc`) para enviar los posts pendientes que coincidan con la ventana horaria configurada y realizar tareas de mantenimiento como la limpieza automática de posts antiguos.
+- **Despliegue del Worker:**
+  ```bash
+  cd worker-scheduler
+  npx wrangler deploy
+  ```
+
+---
+
 ## Desarrollo local
 
 ### Prerrequisitos
