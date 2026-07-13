@@ -58,6 +58,15 @@ Permite gestionar un flujo de publicación editorial en tres pasos:
 - Pulsa **Seleccionar Todo** para seleccionar todas las visibles (filtradas).
 - Pulsa **Enviar (N)** para publicar las seleccionadas en el canal de Telegram.
 
+> **Persistencia**: La bandeja de entrada se almacena localmente en el navegador (`localStorage`) de tu dispositivo. Al cerrar sesión, recargar la página o cerrar el navegador, los posts de la bandeja no desaparecerán.
+
+### 4. Limpieza Automática de Publicaciones Enviadas (panel derecho)
+
+- En la sección **Limpieza Automática** puedes configurar el intervalo de días (por ejemplo, `10` días) tras el cual los posts que ya fueron enviados con éxito se borrarán automáticamente de la base de datos D1.
+- Pulsa **Guardar Configuración de Limpieza** para persistir el valor.
+- Configurar el valor en `0` (o dejarlo vacío) desactivará por completo la limpieza automática.
+- Esta limpieza es ejecutada periódicamente en segundo plano por el Worker Scheduler.
+
 ---
 
 ## Formato del JSON de Google Drive
@@ -222,7 +231,7 @@ GDRIVE_API_KEY=
 | `POST` | `/api/login` | Valida credenciales y genera cookie/token de sesión |
 | `POST` | `/api/logout` | Cierra la sesión y borra la cookie `session_token` |
 | `GET` | `/api/health` | Verifica la conexión con la base de datos D1 |
-| `GET` | `/api/config` | Obtiene la configuración guardada (bot token, channel id, drive url) |
+| `GET` | `/api/config` | Obtiene la configuración guardada (bot token, channel id, drive url, auto_delete_days) |
 | `POST` | `/api/config` | Guarda la configuración en D1 |
 | `POST` | `/api/drive/fetch` | Descarga y normaliza el JSON desde Google Drive |
 | `POST` | `/api/telegram/send` | Envía las publicaciones seleccionadas al canal de Telegram |
