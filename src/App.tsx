@@ -563,7 +563,7 @@ export default function App() {
           </div>
           <button
             onClick={handleLogout}
-            className="border-2 border-[#1A1A1A] px-3 py-1 text-[10px] font-black uppercase bg-[#E63946] text-white hover:bg-[#D62828] hover:-translate-x-px hover:-translate-y-px hover:shadow-[2px_2px_0_#1A1A1A] transition-all shadow-[1px_1px_0_#1A1A1A] flex items-center gap-1.5 cursor-pointer"
+            className="border-2 border-[#1A1A1A] px-3 py-1 text-[10px] font-black uppercase bg-[#1A1A1A] text-white hover:bg-[#333333] hover:-translate-x-px hover:-translate-y-px hover:shadow-[2px_2px_0_#1A1A1A] transition-all shadow-[1px_1px_0_#1A1A1A] flex items-center gap-1.5 cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span className="hidden xs:inline">Cerrar Sesión</span>
