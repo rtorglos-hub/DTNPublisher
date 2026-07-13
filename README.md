@@ -149,7 +149,12 @@ Ve a **Settings** > **Functions** > **D1 database bindings**:
 - **Variable name**: `DB`
 - **D1 database**: selecciona `dtnpblisher`
 
-#### 4. Re-desplegar
+#### 4. Configurar Variables de Autenticación
+Para asegurar la aplicación, configura dos variables en **Settings** > **Variables** > **Environment variables** (tanto en Producción como en Preview):
+- `AUTH_EMAIL`: El correo de acceso (ej. `admin@example.com`).
+- `AUTH_PASSWORD`: La contraseña de acceso.
+
+#### 5. Re-desplegar
 Haz un push al repositorio o dispara un deploy manual desde el panel para que los cambios surtan efecto.
 
 ---
@@ -179,20 +184,29 @@ npx wrangler pages dev dist --d1 DB
 
 La app estará disponible en `http://127.0.0.1:8788`.
 
-### Variables de entorno opcionales
+### Variables de entorno obligatorias y opcionales
 
 Crea un archivo `.env` en la raíz si necesitas configuración adicional:
 
 ```env
-GDRIVE_API_KEY=   # Opcional: solo necesario para leer carpetas completas de Drive
+# Obligatorias para la autenticación
+AUTH_EMAIL=admin@dtn.com
+AUTH_PASSWORD=admin
+
+# Opcional: solo necesario para leer carpetas completas de Drive
+GDRIVE_API_KEY=
 ```
 
 ---
 
 ## API Endpoints (Pages Functions)
 
+> **Nota**: Todos los endpoints (excepto `/api/login` y `/api/logout`) están protegidos mediante middleware y requieren autenticación válida a través de la cookie `session_token` o la cabecera `Authorization: Bearer <token>`.
+
 | Método | Ruta | Descripción |
 |--------|------|-------------|
+| `POST` | `/api/login` | Valida credenciales y genera cookie/token de sesión |
+| `POST` | `/api/logout` | Cierra la sesión y borra la cookie `session_token` |
 | `GET` | `/api/health` | Verifica la conexión con la base de datos D1 |
 | `GET` | `/api/config` | Obtiene la configuración guardada (bot token, channel id, drive url) |
 | `POST` | `/api/config` | Guarda la configuración en D1 |

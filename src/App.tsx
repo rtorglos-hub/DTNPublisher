@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, FormEvent } from "react";
 import { 
   Bot, 
   CheckCircle, 
@@ -18,7 +18,10 @@ import {
   ExternalLink,
   Filter,
   Eye,
-  Zap
+  Zap,
+  Lock,
+  Mail,
+  LogOut
 } from "lucide-react";
 
 interface AppConfig {
@@ -58,16 +61,60 @@ export default function App() {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [previewOpen, setPreviewOpen] = useState<number | null>(null);
 
-  useEffect(() => {
-    fetch("/api/config")
-      .then((r) => r.json())
-      .then((data) => setConfig(data))
-      .catch(() => showToast("Error al cargar la configuración inicial", "error"));
+  // Authentication State
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [loggingIn, setLoggingIn] = useState(false);
 
-    fetch("/api/health")
-      .then((r) => r.json())
-      .then((data) => setDbConnected(data.db === "connected"))
-      .catch(() => setDbConnected(false));
+  // Authenticated fetch wrapper
+  const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+    const token = localStorage.getItem("session_token");
+    const headers = { ...options.headers } as Record<string, string>;
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    const response = await fetch(url, { ...options, headers });
+    if (response.status === 401) {
+      setIsLoggedIn(false);
+      localStorage.removeItem("session_token");
+    }
+    return response;
+  };
+
+  useEffect(() => {
+    const initApp = async () => {
+      try {
+        const r = await authenticatedFetch("/api/config");
+        if (r.ok) {
+          const data = await r.json();
+          setConfig(data);
+          setIsLoggedIn(true);
+        } else if (r.status === 401) {
+          setIsLoggedIn(false);
+          return;
+        } else {
+          showToast("Error al cargar la configuración inicial", "error");
+          setIsLoggedIn(true);
+        }
+      } catch (e) {
+        showToast("Error al cargar la configuración inicial", "error");
+        setIsLoggedIn(true);
+      }
+
+      try {
+        const r = await authenticatedFetch("/api/health");
+        if (r.ok) {
+          const data = await r.json();
+          setDbConnected(data.db === "connected");
+        }
+      } catch (e) {
+        setDbConnected(false);
+      }
+    };
+
+    initApp();
   }, []);
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -102,7 +149,7 @@ export default function App() {
 
   async function handleSaveDriveUrl() {
     try {
-      const r = await fetch("/api/config", {
+      const r = await authenticatedFetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config),
@@ -125,7 +172,7 @@ export default function App() {
 
     setTestingBot(true);
     try {
-      const response = await fetch("/api/telegram/test", {
+      const response = await authenticatedFetch("/api/telegram/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ botToken: config.botToken }),
@@ -137,7 +184,7 @@ export default function App() {
         return;
       }
 
-      const saveRes = await fetch("/api/config", {
+      const saveRes = await authenticatedFetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config),
@@ -168,7 +215,7 @@ export default function App() {
     setSelectedCategory(null);
 
     try {
-      const r = await fetch("/api/drive/fetch", {
+      const r = await authenticatedFetch("/api/drive/fetch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: config.driveUrl }),
@@ -215,7 +262,7 @@ export default function App() {
     setSending(true);
 
     try {
-      const r = await fetch("/api/telegram/send", {
+      const r = await authenticatedFetch("/api/telegram/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ entries: toSend, template }),
@@ -241,6 +288,72 @@ export default function App() {
     }
   }
 
+  async function handleLogin(e: FormEvent) {
+    e.preventDefault();
+    if (!email || !password) {
+      setAuthError("Por favor, introduce tu email y contraseña.");
+      return;
+    }
+
+    setLoggingIn(true);
+    setAuthError(null);
+
+    try {
+      const response = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setAuthError(data.error || "Error al iniciar sesión.");
+        showToast(data.error || "Error al iniciar sesión.", "error", "Error de Acceso");
+        return;
+      }
+
+      if (data.token) {
+        localStorage.setItem("session_token", data.token);
+      }
+      setIsLoggedIn(true);
+      showToast("Sesión iniciada correctamente", "success", "Acceso Concedido");
+
+      // Cargar configuraciones tras autenticación
+      const configRes = await fetch("/api/config", {
+        headers: data.token ? { "Authorization": `Bearer ${data.token}` } : {}
+      });
+      if (configRes.ok) {
+        const configData = await configRes.json();
+        setConfig(configData);
+      }
+      
+      const healthRes = await fetch("/api/health", {
+        headers: data.token ? { "Authorization": `Bearer ${data.token}` } : {}
+      });
+      if (healthRes.ok) {
+        const healthData = await healthRes.json();
+        setDbConnected(healthData.db === "connected");
+      }
+    } catch (e) {
+      setAuthError("Error de conexión con el servidor.");
+      showToast("Error de conexión", "error");
+    } finally {
+      setLoggingIn(false);
+    }
+  }
+
+  async function handleLogout() {
+    try {
+      await fetch("/api/logout", { method: "POST" });
+    } catch (e) {
+      // Ignorar error
+    }
+    localStorage.removeItem("session_token");
+    setIsLoggedIn(false);
+    showToast("Sesión cerrada correctamente", "info", "Sesión Finalizada");
+  }
+
   const handleCopyToClipboard = (text: string, index: number) => {
     navigator.clipboard
       .writeText(text)
@@ -253,6 +366,137 @@ export default function App() {
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
+
+  if (isLoggedIn === null) {
+    return (
+      <div className="w-full min-h-screen bg-[#F0EFEB] flex items-center justify-center font-sans">
+        <div className="flex flex-col items-center gap-4">
+          <RefreshCw className="w-12 h-12 text-[#1A1A1A] animate-spin" />
+          <span className="font-mono text-xs font-black uppercase tracking-wider text-[#1A1A1A]">
+            Cargando aplicación...
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isLoggedIn) {
+    return (
+      <div className="w-full min-h-screen bg-[#F0EFEB] text-[#1A1A1A] flex flex-col items-center justify-center font-sans p-4 selection:bg-[#FFD166] selection:text-[#1A1A1A]">
+        {/* Toast Notification Container */}
+        <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3 max-w-sm w-full pointer-events-none">
+          {toasts.map((toast) => (
+            <div
+              key={toast.id}
+              className={`pointer-events-auto border-2 border-[#1A1A1A] p-4 shadow-[4px_4px_0px_#1A1A1A] flex items-start gap-3 ${
+                toast.type === "success"
+                  ? "bg-[#D8F3DC]"
+                  : toast.type === "error"
+                  ? "bg-[#FAD2E1]"
+                  : "bg-[#E8F0FE]"
+              }`}
+            >
+              <div className="mt-0.5 shrink-0">
+                {toast.type === "success" && <CheckCircle className="w-5 h-5 text-green-700" />}
+                {toast.type === "error" && <AlertTriangle className="w-5 h-5 text-red-700" />}
+                {toast.type === "info" && <Info className="w-5 h-5 text-blue-700" />}
+              </div>
+              <div className="flex-1 min-w-0">
+                {toast.title && (
+                  <h4 className="font-black text-xs uppercase tracking-wider mb-0.5">{toast.title}</h4>
+                )}
+                <p className="text-xs font-mono break-words">{toast.message}</p>
+              </div>
+              <button
+                onClick={() => setToasts((prev) => prev.filter((t) => t.id !== toast.id))}
+                className="shrink-0 text-[#1A1A1A]/60 hover:text-[#1A1A1A] transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="max-w-md w-full bg-white border-4 border-[#1A1A1A] shadow-[8px_8px_0px_#1A1A1A] flex flex-col overflow-hidden">
+          {/* Login Card Header */}
+          <div className="bg-[#FFD166] border-b-4 border-[#1A1A1A] p-4 flex items-center gap-3">
+            <div className="bg-[#1A1A1A] text-[#FFD166] p-1.5 border-2 border-[#1A1A1A]">
+              <Zap className="w-5 h-5" />
+            </div>
+            <span className="font-black text-lg tracking-tighter uppercase italic">DTN Publisher</span>
+          </div>
+
+          <form onSubmit={handleLogin} className="p-6 space-y-5">
+            <div>
+              <h2 className="text-xl font-black uppercase tracking-tight mb-1">Iniciar Sesión</h2>
+              <p className="text-xs opacity-60 font-mono">
+                Por favor, inicia sesión para acceder al panel de administración.
+              </p>
+            </div>
+
+            {authError && (
+              <div className="bg-[#FAD2E1] border-2 border-[#1A1A1A] p-3 shadow-[2px_2px_0px_#1A1A1A] flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
+                <span className="text-[11px] font-mono leading-tight">{authError}</span>
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[9px] uppercase font-black opacity-60 mb-1">Email</label>
+                <div className="relative">
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full bg-white border-2 border-[#1A1A1A] text-xs py-2 pl-8 pr-2 font-mono outline-none shadow-[2px_2px_0_#1A1A1A] focus:-translate-x-px focus:-translate-y-px focus:shadow-[3px_3px_0_#1A1A1A] transition-all"
+                    placeholder="admin@example.com"
+                  />
+                  <Mail className="w-4 h-4 absolute left-2.5 top-2.5 text-[#1A1A1A]/40 pointer-events-none" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[9px] uppercase font-black opacity-60 mb-1">Contraseña</label>
+                <div className="relative">
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-white border-2 border-[#1A1A1A] text-xs py-2 pl-8 pr-2 font-mono outline-none shadow-[2px_2px_0_#1A1A1A] focus:-translate-x-px focus:-translate-y-px focus:shadow-[3px_3px_0_#1A1A1A] transition-all"
+                    placeholder="••••••••"
+                  />
+                  <Lock className="w-4 h-4 absolute left-2.5 top-2.5 text-[#1A1A1A]/40 pointer-events-none" />
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loggingIn}
+              className="w-full border-2 border-[#1A1A1A] py-2 text-xs font-black uppercase bg-[#FFD166] hover:bg-[#F2C14E] hover:-translate-x-px hover:-translate-y-px hover:shadow-[3px_3px_0_#1A1A1A] transition-all shadow-[2px_2px_0_#1A1A1A] flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+            >
+              {loggingIn ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" /> Verificando...
+                </>
+              ) : (
+                <>
+                  <Lock className="w-4 h-4" /> Entrar
+                </>
+              )}
+            </button>
+          </form>
+
+          <div className="bg-[#F0EFEB] border-t-2 border-[#1A1A1A] p-3 text-[9px] text-center font-mono opacity-50 uppercase tracking-wide">
+            Acceso restringido a administradores autorizados.
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full min-h-screen bg-[#F0EFEB] text-[#1A1A1A] flex flex-col font-sans selection:bg-[#FFD166] selection:text-[#1A1A1A]">
@@ -317,6 +561,13 @@ export default function App() {
             />
             BOT: {config.botToken ? "ONLINE" : "DESCONECTADO"}
           </div>
+          <button
+            onClick={handleLogout}
+            className="border-2 border-[#1A1A1A] px-3 py-1 text-[10px] font-black uppercase bg-[#E63946] text-white hover:bg-[#D62828] hover:-translate-x-px hover:-translate-y-px hover:shadow-[2px_2px_0_#1A1A1A] transition-all shadow-[1px_1px_0_#1A1A1A] flex items-center gap-1.5 cursor-pointer"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden xs:inline">Cerrar Sesión</span>
+          </button>
         </div>
       </header>
 
