@@ -4,7 +4,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { fileURLToPath } from 'url';
 import { getConfig, saveConfig } from "./src/d1.js";
-import { extractFolderId, fetchDriveEntries, fetchSingleDriveFile } from "./src/drive.js";
+import { extractFolderId, fetchDriveEntries, fetchSingleDriveFile, fetchGenericJsonUrl } from "./src/drive.js";
 import { sendToTelegram, sendBatchToTelegram } from "./src/telegram.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -47,6 +47,10 @@ async function startServer() {
 
   const DRIVE_API_KEY = process.env.GDRIVE_API_KEY || "";
 
+  function isDriveUrl(url: string): boolean {
+    return /drive\.google\.com|docs\.google\.com\//.test(url);
+  }
+
   app.post("/api/drive/fetch", async (req, res) => {
     try {
       const { url } = req.body;
@@ -54,30 +58,36 @@ async function startServer() {
         res.status(400).json({ error: "URL is required" });
         return;
       }
-      if (!DRIVE_API_KEY) {
-        res.status(400).json({ error: "GDRIVE_API_KEY not configured on server" });
-        return;
-      }
-
-      const fileMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
-      const folderId = extractFolderId(url);
-
-      if (!folderId) {
-        res.status(400).json({ error: "Could not extract folder/file ID from URL" });
-        return;
-      }
 
       let entries;
-      if (fileMatch) {
-        entries = await fetchSingleDriveFile(folderId, DRIVE_API_KEY);
+
+      if (isDriveUrl(url)) {
+        if (!DRIVE_API_KEY) {
+          res.status(400).json({ error: "GDRIVE_API_KEY not configured on server" });
+          return;
+        }
+
+        const fileMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+        const folderId = extractFolderId(url);
+
+        if (!folderId) {
+          res.status(400).json({ error: "Could not extract folder/file ID from URL" });
+          return;
+        }
+
+        if (fileMatch) {
+          entries = await fetchSingleDriveFile(folderId, DRIVE_API_KEY);
+        } else {
+          entries = await fetchDriveEntries(folderId, DRIVE_API_KEY);
+        }
       } else {
-        entries = await fetchDriveEntries(folderId, DRIVE_API_KEY);
+        entries = await fetchGenericJsonUrl(url);
       }
 
       res.json({ entries, count: entries.length });
     } catch (e) {
-      console.error("Error fetching Drive entries:", e);
-      res.status(500).json({ error: e instanceof Error ? e.message : "Failed to fetch Drive entries" });
+      console.error("Error fetching entries:", e);
+      res.status(500).json({ error: e instanceof Error ? e.message : "Failed to fetch entries" });
     }
   });
 

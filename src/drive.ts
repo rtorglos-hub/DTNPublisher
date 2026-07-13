@@ -109,3 +109,19 @@ export async function fetchSingleDriveFile(fileId: string, apiKey: string): Prom
   const data = await dlRes.json();
   return normalizeDriveData(data);
 }
+
+export async function fetchGenericJsonUrl(url: string): Promise<DriveEntry[]> {
+  const res = await fetch(url, {
+    headers: { "Accept": "application/json" },
+    redirect: "follow",
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Error al descargar JSON desde la URL: ${res.status} - ${err}`);
+  }
+
+  const data = await res.json();
+  return normalizeDriveData(data);
+}
+
