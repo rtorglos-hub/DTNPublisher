@@ -966,18 +966,18 @@ export default function App() {
                           <div className="flex-1 min-w-0">
                             {/* Title + category */}
                             <div className="flex items-center justify-between gap-2 flex-wrap">
-                              <h3 className="font-black text-sm uppercase tracking-tight text-[#1A1A1A] leading-tight">
+                              <h3 className="font-black text-base uppercase tracking-tight text-[#1A1A1A] leading-tight">
                                 {entry.title || "Sin título"}
                               </h3>
                               {entry.category && (
-                                <span className="shrink-0 bg-[#457B9D]/10 text-[#457B9D] border border-[#457B9D] px-2 py-0.5 text-[8px] font-black uppercase">
+                                <span className="shrink-0 bg-[#457B9D]/10 text-[#457B9D] border border-[#457B9D] px-2 py-0.5 text-[10px] font-black uppercase">
                                   {(entry.category as string).replace(/_/g, " ")}
                                 </span>
                               )}
                             </div>
 
                             {/* Summary */}
-                            <p className="text-xs opacity-70 mt-1 line-clamp-2 font-mono">
+<p className="text-sm opacity-70 mt-1 line-clamp-2 font-mono">
                               {entry.summary || ""}
                             </p>
 
@@ -988,7 +988,7 @@ export default function App() {
                                   href={entry.link as string}
                                   target="_blank"
                                   rel="noreferrer noopener"
-                                  className="text-blue-600 text-[10px] font-bold hover:underline flex items-center gap-0.5"
+                                  className="text-blue-600 text-xs font-bold hover:underline flex items-center gap-0.5"
                                 >
                                   <ExternalLink className="w-3 h-3" /> Ver fuente
                                 </a>
@@ -998,12 +998,12 @@ export default function App() {
                                 {/* Copy button */}
                                 <button
                                   onClick={() => handleCopyToClipboard(previewText, originalIndex)}
-                                  className="border border-[#1A1A1A] bg-white px-2 py-1 text-[9px] font-black uppercase tracking-wider flex items-center gap-1 hover:bg-[#1A1A1A]/5 shadow-[1px_1px_0_#1A1A1A] transition-all cursor-pointer"
+                                  className="border border-[#1A1A1A] bg-white px-2 py-1 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 hover:bg-[#1A1A1A]/5 shadow-[1px_1px_0_#1A1A1A] transition-all cursor-pointer"
                                 >
                                   {copiedIndex === originalIndex ? (
-                                    <><Check className="w-3 h-3 text-green-700" /> Copiado</>
+                                    <><Check className="w-4 h-4 text-green-700" /> Copiado</>
                                   ) : (
-                                    <><Copy className="w-3 h-3" /> Copiar</>
+                                    <><Copy className="w-4 h-4" /> Copiar</>
                                   )}
                                 </button>
 
@@ -1012,7 +1012,7 @@ export default function App() {
                                   onClick={() =>
                                     setPreviewOpen(previewOpen === originalIndex ? null : originalIndex)
                                   }
-                                  className={`border border-[#1A1A1A] px-2 py-1 text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shadow-[1px_1px_0_#1A1A1A] transition-all cursor-pointer ${
+                                  className={`border border-[#1A1A1A] px-2 py-1 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-[1px_1px_0_#1A1A1A] transition-all cursor-pointer ${
                                     previewOpen === originalIndex
                                       ? "bg-[#1A1A1A] text-white"
                                       : "bg-white hover:bg-[#1A1A1A]/5"
@@ -1027,7 +1027,7 @@ export default function App() {
                             {/* Inline preview panel (no absolute positioning) */}
                             {previewOpen === originalIndex && (
                               <div className="mt-3 space-y-2">
-                                <pre className="border-2 border-[#1A1A1A] bg-[#FFFBE6] p-3 text-[9px] font-mono whitespace-pre-wrap shadow-[3px_3px_0_#1A1A1A] max-h-[200px] overflow-y-auto">
+                                <pre className="border-2 border-[#1A1A1A] bg-[#FFFBE6] p-3 text-xs font-mono whitespace-pre-wrap shadow-[3px_3px_0_#1A1A1A] max-h-[200px] overflow-y-auto">
                                   {previewText.replace(/\[button:(.*?)\]/, "").trim()}
                                 </pre>
                                 {previewText.match(/\[button:(.*?)\]/) && (entry.link || entry.fuente_url) && (
@@ -1035,7 +1035,7 @@ export default function App() {
                                     href={(entry.link || entry.fuente_url) as string}
                                     target="_blank"
                                     rel="noreferrer noopener"
-                                    className="w-full border-2 border-[#1A1A1A] py-1.5 text-[9px] font-black uppercase bg-[#FFD166] text-[#1A1A1A] flex items-center justify-center gap-1.5 shadow-[2px_2px_0_#1A1A1A] hover:bg-[#F2C14E] transition-all"
+                                    className="w-full border-2 border-[#1A1A1A] py-2 text-sm font-black uppercase bg-[#FFD166] text-[#1A1A1A] flex items-center justify-center gap-1.5 shadow-[2px_2px_0_#1A1A1A] hover:bg-[#F2C14E] transition-all"
                                   >
                                     {previewText.match(/\[button:(.*?)\]/)?.[1].trim() || "👉 Leer más"}
                                   </a>
@@ -1094,17 +1094,17 @@ export default function App() {
                       <div className="flex-1 min-w-0">
                         {/* Title + Status badge */}
                         <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <h3 className="font-black text-sm uppercase tracking-tight text-[#1A1A1A] leading-tight">
+                          <h3 className="font-black text-base uppercase tracking-tight text-[#1A1A1A] leading-tight">
                             {post.title || "Sin título"}
                           </h3>
                           <div className="flex items-center gap-1.5">
                             {post.category && (
-                              <span className="bg-[#457B9D]/10 text-[#457B9D] border border-[#457B9D] px-2 py-0.5 text-[8px] font-black uppercase">
+                              <span className="bg-[#457B9D]/10 text-[#457B9D] border border-[#457B9D] px-2 py-0.5 text-[10px] font-black uppercase">
                                 {post.category.replace(/_/g, " ")}
                               </span>
                             )}
                             <span
-                              className={`border px-2 py-0.5 text-[8px] font-black uppercase ${
+                              className={`border px-2 py-0.5 text-[10px] font-black uppercase ${
                                 post.status === "sent"
                                   ? "bg-green-100 text-green-800 border-green-800"
                                   : post.status === "failed"
@@ -1122,19 +1122,19 @@ export default function App() {
                         </div>
 
                         {/* Summary */}
-                        <p className="text-xs opacity-70 mt-1 line-clamp-2 font-mono">
+                        <p className="text-sm opacity-70 mt-1 line-clamp-2 font-mono">
                           {post.summary || ""}
                         </p>
 
                         {/* Error details if failed */}
                         {post.status === "failed" && post.error_message && (
-                          <div className="mt-2 bg-[#FAD2E1] border border-red-500 p-2 text-[10px] font-mono text-red-900">
+                          <div className="mt-2 bg-[#FAD2E1] border border-red-500 p-2 text-xs font-mono text-red-900">
                             <b>Error:</b> {post.error_message}
                           </div>
                         )}
 
                         {/* Timestamp and Actions */}
-                        <div className="flex items-center justify-between mt-3 pt-2 border-t border-[#1A1A1A]/10 flex-wrap gap-2 text-[9px] font-mono opacity-60">
+                        <div className="flex items-center justify-between mt-3 pt-2 border-t border-[#1A1A1A]/10 flex-wrap gap-2 text-[10px] font-mono opacity-60">
                           <div>
                             <span>Programado: {new Date(post.created_at).toLocaleString("es-ES")}</span>
                             {post.sent_at && (
@@ -1145,15 +1145,15 @@ export default function App() {
                             {post.status === "pending" && (
                               <button
                                 onClick={() => deleteQueueItem(post.id)}
-                                className="border border-[#E63946] bg-white text-[#E63946] px-2 py-1 text-[9px] font-black uppercase tracking-wider flex items-center gap-1 hover:bg-[#E63946]/10 shadow-[1px_1px_0_#E63946] transition-all cursor-pointer"
+                                className="border border-[#E63946] bg-white text-[#E63946] px-2 py-1 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 hover:bg-[#E63946]/10 shadow-[1px_1px_0_#E63946] transition-all cursor-pointer"
                               >
-                                <X className="w-3 h-3" /> Cancelar
+                                <X className="w-4 h-4" /> Cancelar
                               </button>
                             )}
                             {post.status !== "pending" && (
                               <button
                                 onClick={() => deleteQueueItem(post.id)}
-                                className="border border-[#1A1A1A] bg-white text-[#1A1A1A]/60 px-2 py-1 text-[9px] font-black uppercase tracking-wider flex items-center gap-1 hover:bg-[#1A1A1A]/5 shadow-[1px_1px_0_#1A1A1A] transition-all cursor-pointer"
+                                className="border border-[#1A1A1A] bg-white text-[#1A1A1A]/60 px-2 py-1 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 hover:bg-[#1A1A1A]/5 shadow-[1px_1px_0_#1A1A1A] transition-all cursor-pointer"
                               >
                                 Eliminar Reg
                               </button>
