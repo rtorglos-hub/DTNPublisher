@@ -6,6 +6,10 @@ export interface AppConfig {
   botToken: string;
   channelId: string;
   driveUrl: string;
+  scheduleDays?: string;
+  scheduleStart?: string;
+  scheduleEnd?: string;
+  scheduleTimezone?: string;
 }
 
 export const onRequestGet: PagesFunction<Env> = async (context) => {
@@ -19,12 +23,28 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
   try {
     const { results } = await db
-      .prepare("SELECT bot_token, channel_id, drive_url FROM config WHERE id = 1")
-      .all<{ bot_token: string; channel_id: string; drive_url: string }>();
+      .prepare("SELECT bot_token, channel_id, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone FROM config WHERE id = 1")
+      .all<{
+        bot_token: string;
+        channel_id: string;
+        drive_url: string;
+        schedule_days: string | null;
+        schedule_start: string | null;
+        schedule_end: string | null;
+        schedule_timezone: string | null;
+      }>();
 
     if (!results || results.length === 0) {
       return new Response(
-        JSON.stringify({ botToken: "", channelId: "", driveUrl: "" }),
+        JSON.stringify({
+          botToken: "",
+          channelId: "",
+          driveUrl: "",
+          scheduleDays: "",
+          scheduleStart: "",
+          scheduleEnd: "",
+          scheduleTimezone: "Europe/Madrid",
+        }),
         { headers: { "Content-Type": "application/json" } }
       );
     }
@@ -35,6 +55,10 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         botToken: row.bot_token || "",
         channelId: row.channel_id || "",
         driveUrl: row.drive_url || "",
+        scheduleDays: row.schedule_days || "",
+        scheduleStart: row.schedule_start || "",
+        scheduleEnd: row.schedule_end || "",
+        scheduleTimezone: row.schedule_timezone || "Europe/Madrid",
       }),
       { headers: { "Content-Type": "application/json" } }
     );
@@ -60,15 +84,27 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     
     await db
       .prepare(
-        `INSERT INTO config (id, bot_token, channel_id, drive_url, updated_at)
-         VALUES (1, ?, ?, ?, datetime('now'))
+        `INSERT INTO config (id, bot_token, channel_id, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone, updated_at)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
          ON CONFLICT(id) DO UPDATE SET
            bot_token = excluded.bot_token,
            channel_id = excluded.channel_id,
            drive_url = excluded.drive_url,
+           schedule_days = excluded.schedule_days,
+           schedule_start = excluded.schedule_start,
+           schedule_end = excluded.schedule_end,
+           schedule_timezone = excluded.schedule_timezone,
            updated_at = datetime('now')`
       )
-      .bind(config.botToken || "", config.channelId || "", config.driveUrl || "")
+      .bind(
+        config.botToken || "",
+        config.channelId || "",
+        config.driveUrl || "",
+        config.scheduleDays || "",
+        config.scheduleStart || "",
+        config.scheduleEnd || "",
+        config.scheduleTimezone || "Europe/Madrid"
+      )
       .run();
 
     return new Response(JSON.stringify({ status: "ok" }), {

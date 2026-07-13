@@ -28,6 +28,10 @@ interface AppConfig {
   botToken: string;
   channelId: string;
   driveUrl: string;
+  scheduleDays?: string;
+  scheduleStart?: string;
+  scheduleEnd?: string;
+  scheduleTimezone?: string;
 }
 
 interface DriveEntry {
@@ -60,6 +64,35 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [previewOpen, setPreviewOpen] = useState<number | null>(null);
+
+  // Scheduling Configurations State
+  const [selectedDays, setSelectedDays] = useState<number[]>([]);
+  const [scheduleStart, setScheduleStart] = useState("");
+  const [scheduleEnd, setScheduleEnd] = useState("");
+  const [scheduleTimezone, setScheduleTimezone] = useState("Europe/Madrid");
+
+  // Tab and Queue States
+  const [activeTab, setActiveTab] = useState<"inbox" | "queue">("inbox");
+  const [scheduledEntries, setScheduledEntries] = useState<any[]>([]);
+  const [fetchingQueue, setFetchingQueue] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
+
+  // Sync config values with local form states
+  useEffect(() => {
+    if (config) {
+      setSelectedDays(config.scheduleDays ? config.scheduleDays.split(",").map(Number) : []);
+      setScheduleStart(config.scheduleStart || "10:00");
+      setScheduleEnd(config.scheduleEnd || "18:00");
+      setScheduleTimezone(config.scheduleTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Madrid");
+    }
+  }, [config]);
+
+  // Fetch queue items when Queue tab is selected
+  useEffect(() => {
+    if (activeTab === "queue") {
+      fetchQueue();
+    }
+  }, [activeTab]);
 
   // Authentication State
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
@@ -254,6 +287,98 @@ export default function App() {
       }
       return next;
     });
+  }
+
+  async function fetchQueue() {
+    setFetchingQueue(true);
+    try {
+      const r = await authenticatedFetch("/api/telegram/schedule");
+      const data = await r.json();
+      if (!r.ok) {
+        showToast(data.error || "Error al cargar la cola de envíos", "error", "Error de Cola");
+      } else {
+        setScheduledEntries(data.entries || []);
+      }
+    } catch (e) {
+      showToast(`Error de conexión: ${e}`, "error");
+    } finally {
+      setFetchingQueue(false);
+    }
+  }
+
+  async function deleteQueueItem(id: number) {
+    try {
+      const r = await authenticatedFetch(`/api/telegram/schedule?id=${id}`, {
+        method: "DELETE",
+      });
+      if (r.ok) {
+        showToast("Publicación eliminada de la cola con éxito.", "success", "Eliminado ✓");
+        setScheduledEntries((prev) => prev.filter((item) => item.id !== id));
+      } else {
+        const data = await r.json();
+        showToast(data.error || "Error al eliminar de la cola", "error");
+      }
+    } catch (e) {
+      showToast(`Error de conexión: ${e}`, "error");
+    }
+  }
+
+  async function scheduleSelected() {
+    const toSchedule = entries.filter((_, i) => selected.has(i));
+    if (toSchedule.length === 0) return;
+    setScheduling(true);
+
+    try {
+      const r = await authenticatedFetch("/api/telegram/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entries: toSchedule, template }),
+      });
+      const data = await r.json();
+      if (!r.ok) {
+        showToast(data.error || "Error al programar mensajes", "error", "Error de Programación");
+      } else {
+        showToast(
+          `Se programaron ${data.success} publicaciones correctamente.`,
+          "success",
+          "Programación Exitosa"
+        );
+        if (data.success > 0) {
+          setEntries((prev) => prev.filter((_, i) => !selected.has(i)));
+          setSelected(new Set());
+        }
+      }
+    } catch (e) {
+      showToast(`Error de conexión: ${e}`, "error", "Error de Red");
+    } finally {
+      setScheduling(false);
+    }
+  }
+
+  async function handleSaveScheduleConfig() {
+    try {
+      const updatedConfig = {
+        ...config,
+        scheduleDays: selectedDays.join(","),
+        scheduleStart,
+        scheduleEnd,
+        scheduleTimezone
+      };
+      
+      const r = await authenticatedFetch("/api/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedConfig),
+      });
+      if (r.ok) {
+        setConfig(updatedConfig);
+        showToast("Configuración de horario guardada con éxito.", "success", "Horario Guardado");
+      } else {
+        showToast("Error al guardar la configuración de horario.", "error", "Error de Guardado");
+      }
+    } catch (e) {
+      showToast(`Error de conexión: ${e}`, "error");
+    }
   }
 
   async function sendSelected() {
@@ -647,224 +772,363 @@ export default function App() {
         {/* ── Center Column: List of items ── */}
         <section className="lg:col-span-6 border-b-4 lg:border-b-0 lg:border-r-4 border-[#1A1A1A] flex flex-col min-h-0 bg-[#FAF9F5]">
 
-          {/* Toolbar */}
-          <div className="p-4 border-b-2 border-[#1A1A1A] bg-[#F0EFEB] space-y-3 shrink-0">
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-[9px] font-mono opacity-50 uppercase tracking-wider">Posts Cargados</p>
-                <h1 className="text-lg font-black uppercase tracking-tight flex items-center gap-1.5 truncate">
-                  <FileText className="w-5 h-5 shrink-0" />
-                  {entries.length > 0 ? `${entries.length} publicaciones` : "Bandeja vacía"}
-                </h1>
-              </div>
+          {/* Tab Selector */}
+          <div className="flex border-b-2 border-[#1A1A1A] bg-[#F0EFEB] shrink-0 font-mono text-[10px] font-black uppercase">
+            <button
+              onClick={() => setActiveTab("inbox")}
+              className={`flex-1 py-3 text-center border-r-2 border-[#1A1A1A] transition-all hover:bg-[#1A1A1A]/10 cursor-pointer ${
+                activeTab === "inbox" ? "bg-[#FFD166] text-[#1A1A1A]" : "bg-white text-[#1A1A1A]/60"
+              }`}
+            >
+              Bandeja de Entrada ({entries.length})
+            </button>
+            <button
+              onClick={() => setActiveTab("queue")}
+              className={`flex-1 py-3 text-center transition-all hover:bg-[#1A1A1A]/10 cursor-pointer ${
+                activeTab === "queue" ? "bg-[#FFD166] text-[#1A1A1A]" : "bg-white text-[#1A1A1A]/60"
+              }`}
+            >
+              Cola de Programados ({scheduledEntries.length})
+            </button>
+          </div>
 
-              {entries.length > 0 && (
-                <div className="flex gap-2 shrink-0">
-                  <button
-                    onClick={selectAllFiltered}
-                    className="border-2 border-[#1A1A1A] bg-white px-3 py-1.5 text-[10px] font-black uppercase hover:bg-[#F0EFEB] hover:-translate-x-px hover:-translate-y-px hover:shadow-[2px_2px_0_#1A1A1A] transition-all shadow-[1px_1px_0_#1A1A1A] whitespace-nowrap"
-                  >
-                    {filteredIndices.every((idx) => selected.has(idx)) && filteredIndices.length > 0
-                      ? "Deseleccionar"
-                      : "Sel. Todo"}
-                  </button>
-                  <button
-                    onClick={sendSelected}
-                    disabled={sending || selected.size === 0}
-                    className="border-2 border-[#1A1A1A] bg-[#457B9D] text-white px-3 py-1.5 text-[10px] font-black uppercase hover:bg-[#3B6B8A] hover:-translate-x-px hover:-translate-y-px hover:shadow-[2px_2px_0_#1A1A1A] transition-all shadow-[1px_1px_0_#1A1A1A] disabled:opacity-40 disabled:pointer-events-none flex items-center gap-1 whitespace-nowrap"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    {sending ? "Enviando..." : `Enviar${selected.size > 0 ? ` (${selected.size})` : ""}`}
-                  </button>
-                </div>
-              )}
-            </div>
+          {activeTab === "inbox" ? (
+            <>
+              {/* Toolbar */}
+              <div className="p-4 border-b-2 border-[#1A1A1A] bg-[#F0EFEB] space-y-3 shrink-0">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-[9px] font-mono opacity-50 uppercase tracking-wider">Posts Cargados</p>
+                    <h1 className="text-lg font-black uppercase tracking-tight flex items-center gap-1.5 truncate">
+                      <FileText className="w-5 h-5 shrink-0" />
+                      {entries.length > 0 ? `${entries.length} publicaciones` : "Bandeja vacía"}
+                    </h1>
+                  </div>
 
-            {entries.length > 0 && (
-              <div className="space-y-2">
-                {/* Search */}
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Buscar por título, contenido o etiqueta..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="w-full bg-white border-2 border-[#1A1A1A] text-xs py-1.5 pl-8 pr-7 outline-none font-mono placeholder:text-[#1A1A1A]/40"
-                  />
-                  <Search className="w-4 h-4 absolute left-2.5 top-2 text-[#1A1A1A]/40 pointer-events-none" />
-                  {search && (
-                    <button
-                      onClick={() => setSearch("")}
-                      className="absolute right-2 top-2 text-[#1A1A1A]/40 hover:text-[#1A1A1A] transition-colors"
-                      aria-label="Limpiar búsqueda"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
+                  {entries.length > 0 && (
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        onClick={scheduleSelected}
+                        disabled={scheduling || selected.size === 0}
+                        className="border-2 border-[#1A1A1A] bg-[#FFD166] text-[#1A1A1A] px-3 py-1.5 text-[10px] font-black uppercase hover:bg-[#F2C14E] hover:-translate-x-px hover:-translate-y-px hover:shadow-[2px_2px_0_#1A1A1A] transition-all shadow-[1px_1px_0_#1A1A1A] disabled:opacity-40 disabled:pointer-events-none whitespace-nowrap cursor-pointer"
+                      >
+                        {scheduling ? "Programando..." : `Programar${selected.size > 0 ? ` (${selected.size})` : ""}`}
+                      </button>
+                      <button
+                        onClick={sendSelected}
+                        disabled={sending || selected.size === 0}
+                        className="border-2 border-[#1A1A1A] bg-[#457B9D] text-white px-3 py-1.5 text-[10px] font-black uppercase hover:bg-[#3B6B8A] hover:-translate-x-px hover:-translate-y-px hover:shadow-[2px_2px_0_#1A1A1A] transition-all shadow-[1px_1px_0_#1A1A1A] disabled:opacity-40 disabled:pointer-events-none flex items-center gap-1 whitespace-nowrap cursor-pointer"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        {sending ? "Enviando..." : `Enviar${selected.size > 0 ? ` (${selected.size})` : ""}`}
+                      </button>
+                    </div>
                   )}
                 </div>
 
-                {/* Category filter pills */}
-                {categories.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-[9px] font-black uppercase tracking-wider text-[#1A1A1A]/50 flex items-center gap-0.5 mr-1">
-                      <Filter className="w-3 h-3" /> Filtrar:
-                    </span>
-                    <button
-                      onClick={() => setSelectedCategory(null)}
-                      className={`text-[9px] font-black uppercase px-2 py-0.5 border border-[#1A1A1A] transition-all hover:bg-[#1A1A1A]/10 ${
-                        !selectedCategory ? "bg-[#1A1A1A] text-white" : "bg-white text-[#1A1A1A]"
-                      }`}
-                    >
-                      Todos
-                    </button>
-                    {categories.map((cat) => (
-                      <button
-                        key={cat}
-                        onClick={() => setSelectedCategory(selectedCategory === cat ? null : cat)}
-                        className={`text-[9px] font-black uppercase px-2 py-0.5 border border-[#1A1A1A] transition-all hover:bg-[#1A1A1A]/10 ${
-                          selectedCategory === cat ? "bg-[#457B9D] text-white" : "bg-white text-[#1A1A1A]"
-                        }`}
-                      >
-                        {cat.replace(/_/g, " ")}
-                      </button>
-                    ))}
+                {entries.length > 0 && (
+                  <div className="space-y-2">
+                    {/* Search */}
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Buscar por título, contenido o etiqueta..."
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="w-full bg-white border-2 border-[#1A1A1A] text-xs py-1.5 pl-8 pr-7 outline-none font-mono placeholder:text-[#1A1A1A]/40"
+                      />
+                      <Search className="w-4 h-4 absolute left-2.5 top-2 text-[#1A1A1A]/40 pointer-events-none" />
+                      {search && (
+                        <button
+                          onClick={() => setSearch("")}
+                          className="absolute right-2 top-2 text-[#1A1A1A]/40 hover:text-[#1A1A1A] transition-colors cursor-pointer"
+                          aria-label="Limpiar búsqueda"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Category filter pills */}
+                    {categories.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[9px] font-black uppercase tracking-wider text-[#1A1A1A]/50 flex items-center gap-0.5 mr-1">
+                          <Filter className="w-3 h-3" /> Filtrar:
+                        </span>
+                        <button
+                          onClick={() => setSelectedCategory(null)}
+                          className={`text-[9px] font-black uppercase px-2 py-0.5 border border-[#1A1A1A] transition-all hover:bg-[#1A1A1A]/10 cursor-pointer ${
+                            !selectedCategory ? "bg-[#1A1A1A] text-white" : "bg-white text-[#1A1A1A]"
+                          }`}
+                        >
+                          Todos
+                        </button>
+                        {categories.map((cat) => (
+                          <button
+                            key={cat}
+                            onClick={() => setSelectedCategory(selectedCategory === cat ? null : cat)}
+                            className={`text-[9px] font-black uppercase px-2 py-0.5 border border-[#1A1A1A] transition-all hover:bg-[#1A1A1A]/10 cursor-pointer ${
+                              selectedCategory === cat ? "bg-[#457B9D] text-white" : "bg-white text-[#1A1A1A]"
+                            }`}
+                          >
+                            {cat.replace(/_/g, " ")}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            )}
-          </div>
 
-          {/* Entry list */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {entries.length === 0 ? (
-              <div className="p-8 text-center bg-white border-2 border-dashed border-[#1A1A1A]/20">
-                <p className="font-mono text-xs opacity-50">
-                  {fetching ? "Descargando publicaciones..." : "No hay publicaciones cargadas."}
-                </p>
-                {!fetching && (
-                  <p className="font-mono text-[10px] opacity-40 mt-1">
-                    Pega una URL de Drive en el panel izquierdo y haz clic en Descargar JSON.
-                  </p>
+              {/* Entry list */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {entries.length === 0 ? (
+                  <div className="p-8 text-center bg-white border-2 border-dashed border-[#1A1A1A]/20">
+                    <p className="font-mono text-xs opacity-50">
+                      {fetching ? "Descargando publicaciones..." : "No hay publicaciones cargadas."}
+                    </p>
+                    {!fetching && (
+                      <p className="font-mono text-[10px] opacity-40 mt-1">
+                        Pega una URL de Drive en el panel izquierdo y haz clic en Descargar JSON.
+                      </p>
+                    )}
+                  </div>
+                ) : filteredEntries.length === 0 ? (
+                  <div className="p-8 text-center bg-white border-2 border-[#1A1A1A] shadow-[4px_4px_0_#1A1A1A]">
+                    <p className="font-mono text-xs opacity-50">Ninguna publicación coincide con la búsqueda.</p>
+                    <button
+                      onClick={() => { setSearch(""); setSelectedCategory(null); }}
+                      className="mt-2 text-[10px] font-black uppercase text-[#457B9D] hover:underline cursor-pointer"
+                    >
+                      Limpiar filtros
+                    </button>
+                  </div>
+                ) : (
+                  filteredEntries.map((entry, _visibleIdx) => {
+                    const originalIndex = filteredIndices[_visibleIdx];
+                    const previewText = fillTemplate(template, entry);
+
+                    return (
+                      <div
+                        key={originalIndex}
+                        className={`relative border-2 p-4 transition-all duration-200 bg-white shadow-[4px_4px_0_#1A1A1A] hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[6px_6px_0_#1A1A1A] ${
+                          selected.has(originalIndex)
+                            ? "border-[#FFD166] bg-[#FFF9E6]"
+                            : "border-[#1A1A1A]"
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={selected.has(originalIndex)}
+                            onChange={() => toggleSelect(originalIndex)}
+                            className="mt-1 w-4 h-4 cursor-pointer accent-[#1A1A1A] shrink-0"
+                          />
+
+                          <div className="flex-1 min-w-0">
+                            {/* Title + category */}
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <h3 className="font-black text-sm uppercase tracking-tight text-[#1A1A1A] leading-tight">
+                                {entry.title || "Sin título"}
+                              </h3>
+                              {entry.category && (
+                                <span className="shrink-0 bg-[#457B9D]/10 text-[#457B9D] border border-[#457B9D] px-2 py-0.5 text-[8px] font-black uppercase">
+                                  {(entry.category as string).replace(/_/g, " ")}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Summary */}
+                            <p className="text-xs opacity-70 mt-1 line-clamp-2 font-mono">
+                              {entry.summary || ""}
+                            </p>
+
+                            {/* Actions row */}
+                            <div className="flex items-center justify-between mt-3 pt-2 border-t border-[#1A1A1A]/10 flex-wrap gap-2">
+                              {entry.link && (
+                                <a
+                                  href={entry.link as string}
+                                  target="_blank"
+                                  rel="noreferrer noopener"
+                                  className="text-blue-600 text-[10px] font-bold hover:underline flex items-center gap-0.5"
+                                >
+                                  <ExternalLink className="w-3 h-3" /> Ver fuente
+                                </a>
+                              )}
+
+                              <div className="flex gap-2 ml-auto">
+                                {/* Copy button */}
+                                <button
+                                  onClick={() => handleCopyToClipboard(previewText, originalIndex)}
+                                  className="border border-[#1A1A1A] bg-white px-2 py-1 text-[9px] font-black uppercase tracking-wider flex items-center gap-1 hover:bg-[#1A1A1A]/5 shadow-[1px_1px_0_#1A1A1A] transition-all cursor-pointer"
+                                >
+                                  {copiedIndex === originalIndex ? (
+                                    <><Check className="w-3 h-3 text-green-700" /> Copiado</>
+                                  ) : (
+                                    <><Copy className="w-3 h-3" /> Copiar</>
+                                  )}
+                                </button>
+
+                                {/* Preview toggle */}
+                                <button
+                                  onClick={() =>
+                                    setPreviewOpen(previewOpen === originalIndex ? null : originalIndex)
+                                  }
+                                  className={`border border-[#1A1A1A] px-2 py-1 text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shadow-[1px_1px_0_#1A1A1A] transition-all cursor-pointer ${
+                                    previewOpen === originalIndex
+                                      ? "bg-[#1A1A1A] text-white"
+                                      : "bg-white hover:bg-[#1A1A1A]/5"
+                                  }`}
+                                >
+                                  <Eye className="w-3 h-3" />
+                                  {previewOpen === originalIndex ? "Cerrar" : "Vista Previa"}
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Inline preview panel (no absolute positioning) */}
+                            {previewOpen === originalIndex && (
+                              <div className="mt-3 space-y-2">
+                                <pre className="border-2 border-[#1A1A1A] bg-[#FFFBE6] p-3 text-[9px] font-mono whitespace-pre-wrap shadow-[3px_3px_0_#1A1A1A] max-h-[200px] overflow-y-auto">
+                                  {previewText.replace(/\[button:(.*?)\]/, "").trim()}
+                                </pre>
+                                {previewText.match(/\[button:(.*?)\]/) && (entry.link || entry.fuente_url) && (
+                                  <a
+                                    href={(entry.link || entry.fuente_url) as string}
+                                    target="_blank"
+                                    rel="noreferrer noopener"
+                                    className="w-full border-2 border-[#1A1A1A] py-1.5 text-[9px] font-black uppercase bg-[#FFD166] text-[#1A1A1A] flex items-center justify-center gap-1.5 shadow-[2px_2px_0_#1A1A1A] hover:bg-[#F2C14E] transition-all"
+                                  >
+                                    {previewText.match(/\[button:(.*?)\]/)?.[1].trim() || "👉 Leer más"}
+                                  </a>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
-            ) : filteredEntries.length === 0 ? (
-              <div className="p-8 text-center bg-white border-2 border-[#1A1A1A] shadow-[4px_4px_0_#1A1A1A]">
-                <p className="font-mono text-xs opacity-50">Ninguna publicación coincide con la búsqueda.</p>
+            </>
+          ) : (
+            <>
+              {/* Queue Toolbar */}
+              <div className="p-4 border-b-2 border-[#1A1A1A] bg-[#F0EFEB] flex items-center justify-between gap-2 shrink-0">
+                <div>
+                  <p className="text-[9px] font-mono opacity-50 uppercase tracking-wider">Cola de Publicación</p>
+                  <h1 className="text-lg font-black uppercase tracking-tight flex items-center gap-1.5 truncate">
+                    <RefreshCw className={`w-5 h-5 shrink-0 ${fetchingQueue ? "animate-spin" : ""}`} />
+                    {scheduledEntries.length > 0 ? `${scheduledEntries.length} programados` : "Cola vacía"}
+                  </h1>
+                </div>
                 <button
-                  onClick={() => { setSearch(""); setSelectedCategory(null); }}
-                  className="mt-2 text-[10px] font-black uppercase text-[#457B9D] hover:underline"
+                  onClick={fetchQueue}
+                  disabled={fetchingQueue}
+                  className="border-2 border-[#1A1A1A] bg-white px-3 py-1.5 text-[10px] font-black uppercase hover:bg-[#F0EFEB] hover:-translate-x-px hover:-translate-y-px hover:shadow-[2px_2px_0_#1A1A1A] transition-all shadow-[1px_1px_0_#1A1A1A] flex items-center gap-1 cursor-pointer"
                 >
-                  Limpiar filtros
+                  <RefreshCw className={`w-3.5 h-3.5 ${fetchingQueue ? "animate-spin" : ""}`} />
+                  Actualizar
                 </button>
               </div>
-            ) : (
-              filteredEntries.map((entry, _visibleIdx) => {
-                const originalIndex = filteredIndices[_visibleIdx];
-                const previewText = fillTemplate(template, entry);
 
-                return (
-                  <div
-                    key={originalIndex}
-                    className={`relative border-2 p-4 transition-all duration-200 bg-white shadow-[4px_4px_0_#1A1A1A] hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[6px_6px_0_#1A1A1A] ${
-                      selected.has(originalIndex)
-                        ? "border-[#FFD166] bg-[#FFF9E6]"
-                        : "border-[#1A1A1A]"
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(originalIndex)}
-                        onChange={() => toggleSelect(originalIndex)}
-                        className="mt-1 w-4 h-4 cursor-pointer accent-[#1A1A1A] shrink-0"
-                      />
-
+              {/* Queue List */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {fetchingQueue ? (
+                  <div className="p-8 text-center bg-white border-2 border-dashed border-[#1A1A1A]/20">
+                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#1A1A1A]" />
+                    <p className="font-mono text-xs opacity-50">Cargando cola de programación...</p>
+                  </div>
+                ) : scheduledEntries.length === 0 ? (
+                  <div className="p-8 text-center bg-white border-2 border-dashed border-[#1A1A1A]/20">
+                    <p className="font-mono text-xs opacity-50">No hay publicaciones programadas.</p>
+                    <p className="font-mono text-[10px] opacity-40 mt-1">
+                      Selecciona publicaciones en la Bandeja de Entrada y haz clic en "Programar".
+                    </p>
+                  </div>
+                ) : (
+                  scheduledEntries.map((post) => (
+                    <div
+                      key={post.id}
+                      className="relative border-2 border-[#1A1A1A] p-4 bg-white shadow-[4px_4px_0_#1A1A1A] hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[6px_6px_0_#1A1A1A] transition-all"
+                    >
                       <div className="flex-1 min-w-0">
-                        {/* Title + category */}
+                        {/* Title + Status badge */}
                         <div className="flex items-center justify-between gap-2 flex-wrap">
                           <h3 className="font-black text-sm uppercase tracking-tight text-[#1A1A1A] leading-tight">
-                            {entry.title || "Sin título"}
+                            {post.title || "Sin título"}
                           </h3>
-                          {entry.category && (
-                            <span className="shrink-0 bg-[#457B9D]/10 text-[#457B9D] border border-[#457B9D] px-2 py-0.5 text-[8px] font-black uppercase">
-                              {(entry.category as string).replace(/_/g, " ")}
+                          <div className="flex items-center gap-1.5">
+                            {post.category && (
+                              <span className="bg-[#457B9D]/10 text-[#457B9D] border border-[#457B9D] px-2 py-0.5 text-[8px] font-black uppercase">
+                                {post.category.replace(/_/g, " ")}
+                              </span>
+                            )}
+                            <span
+                              className={`border px-2 py-0.5 text-[8px] font-black uppercase ${
+                                post.status === "sent"
+                                  ? "bg-green-100 text-green-800 border-green-800"
+                                  : post.status === "failed"
+                                  ? "bg-red-100 text-red-800 border-red-800"
+                                  : "bg-yellow-100 text-yellow-800 border-yellow-800"
+                              }`}
+                            >
+                              {post.status === "sent"
+                                ? "Enviado"
+                                : post.status === "failed"
+                                ? "Fallido"
+                                : "Pendiente"}
                             </span>
-                          )}
+                          </div>
                         </div>
 
                         {/* Summary */}
                         <p className="text-xs opacity-70 mt-1 line-clamp-2 font-mono">
-                          {entry.summary || ""}
+                          {post.summary || ""}
                         </p>
 
-                        {/* Actions row */}
-                        <div className="flex items-center justify-between mt-3 pt-2 border-t border-[#1A1A1A]/10 flex-wrap gap-2">
-                          {entry.link && (
-                            <a
-                              href={entry.link as string}
-                              target="_blank"
-                              rel="noreferrer noopener"
-                              className="text-blue-600 text-[10px] font-bold hover:underline flex items-center gap-0.5"
-                            >
-                              <ExternalLink className="w-3 h-3" /> Ver fuente
-                            </a>
-                          )}
-
-                          <div className="flex gap-2 ml-auto">
-                            {/* Copy button */}
-                            <button
-                              onClick={() => handleCopyToClipboard(previewText, originalIndex)}
-                              className="border border-[#1A1A1A] bg-white px-2 py-1 text-[9px] font-black uppercase tracking-wider flex items-center gap-1 hover:bg-[#1A1A1A]/5 shadow-[1px_1px_0_#1A1A1A] transition-all"
-                            >
-                              {copiedIndex === originalIndex ? (
-                                <><Check className="w-3 h-3 text-green-700" /> Copiado</>
-                              ) : (
-                                <><Copy className="w-3 h-3" /> Copiar</>
-                              )}
-                            </button>
-
-                            {/* Preview toggle */}
-                            <button
-                              onClick={() =>
-                                setPreviewOpen(previewOpen === originalIndex ? null : originalIndex)
-                              }
-                              className={`border border-[#1A1A1A] px-2 py-1 text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shadow-[1px_1px_0_#1A1A1A] transition-all ${
-                                previewOpen === originalIndex
-                                  ? "bg-[#1A1A1A] text-white"
-                                  : "bg-white hover:bg-[#1A1A1A]/5"
-                              }`}
-                            >
-                              <Eye className="w-3 h-3" />
-                              {previewOpen === originalIndex ? "Cerrar" : "Vista Previa"}
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Inline preview panel (no absolute positioning) */}
-                        {previewOpen === originalIndex && (
-                          <div className="mt-3 space-y-2">
-                            <pre className="border-2 border-[#1A1A1A] bg-[#FFFBE6] p-3 text-[9px] font-mono whitespace-pre-wrap shadow-[3px_3px_0_#1A1A1A] max-h-[200px] overflow-y-auto">
-                              {previewText.replace(/\[button:(.*?)\]/, "").trim()}
-                            </pre>
-                            {previewText.match(/\[button:(.*?)\]/) && (entry.link || entry.fuente_url) && (
-                              <a
-                                href={(entry.link || entry.fuente_url) as string}
-                                target="_blank"
-                                rel="noreferrer noopener"
-                                className="w-full border-2 border-[#1A1A1A] py-1.5 text-[9px] font-black uppercase bg-[#FFD166] text-[#1A1A1A] flex items-center justify-center gap-1.5 shadow-[2px_2px_0_#1A1A1A] hover:bg-[#F2C14E] transition-all"
-                              >
-                                {previewText.match(/\[button:(.*?)\]/)?.[1].trim() || "👉 Leer más"}
-                              </a>
-                            )}
+                        {/* Error details if failed */}
+                        {post.status === "failed" && post.error_message && (
+                          <div className="mt-2 bg-[#FAD2E1] border border-red-500 p-2 text-[10px] font-mono text-red-900">
+                            <b>Error:</b> {post.error_message}
                           </div>
                         )}
+
+                        {/* Timestamp and Actions */}
+                        <div className="flex items-center justify-between mt-3 pt-2 border-t border-[#1A1A1A]/10 flex-wrap gap-2 text-[9px] font-mono opacity-60">
+                          <div>
+                            <span>Programado: {new Date(post.created_at).toLocaleString("es-ES")}</span>
+                            {post.sent_at && (
+                              <span className="block">Procesado: {new Date(post.sent_at).toLocaleString("es-ES")}</span>
+                            )}
+                          </div>
+                          <div className="flex gap-2 ml-auto">
+                            {post.status === "pending" && (
+                              <button
+                                onClick={() => deleteQueueItem(post.id)}
+                                className="border border-[#E63946] bg-white text-[#E63946] px-2 py-1 text-[9px] font-black uppercase tracking-wider flex items-center gap-1 hover:bg-[#E63946]/10 shadow-[1px_1px_0_#E63946] transition-all cursor-pointer"
+                              >
+                                <X className="w-3 h-3" /> Cancelar
+                              </button>
+                            )}
+                            {post.status !== "pending" && (
+                              <button
+                                onClick={() => deleteQueueItem(post.id)}
+                                className="border border-[#1A1A1A] bg-white text-[#1A1A1A]/60 px-2 py-1 text-[9px] font-black uppercase tracking-wider flex items-center gap-1 hover:bg-[#1A1A1A]/5 shadow-[1px_1px_0_#1A1A1A] transition-all cursor-pointer"
+                              >
+                                Eliminar Reg
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
+                  ))
+                )}
+              </div>
+            </>
+          )}
         </section>
 
         {/* ── Right Column: Telegram Config ── */}
@@ -914,6 +1178,106 @@ export default function App() {
                 className="w-full border-2 border-[#FFD166] py-2 text-[10px] font-black uppercase text-[#FFD166] hover:bg-[#FFD166] hover:text-[#1A1A1A] hover:-translate-x-px hover:-translate-y-px transition-all disabled:opacity-40 disabled:pointer-events-none"
               >
                 {testingBot ? "Verificando token..." : "Guardar y Validar"}
+              </button>
+            </div>
+
+            {/* Schedule configuration */}
+            <div className="pt-4 border-t border-white/20 mt-4 space-y-4">
+              <h3 className="text-xs font-black uppercase tracking-wider text-[#FFD166] border-b border-white/20 pb-2">
+                Horario de Envío Programado
+              </h3>
+
+              {/* Days selection */}
+              <div>
+                <label className="block text-[8px] uppercase font-black text-white/50 mb-1.5">
+                  Días de la semana
+                </label>
+                <div className="flex gap-1">
+                  {[
+                    { label: "L", value: 1, name: "Lunes" },
+                    { label: "M", value: 2, name: "Martes" },
+                    { label: "X", value: 3, name: "Miércoles" },
+                    { label: "J", value: 4, name: "Jueves" },
+                    { label: "V", value: 5, name: "Viernes" },
+                    { label: "S", value: 6, name: "Sábado" },
+                    { label: "D", value: 0, name: "Domingo" }
+                  ].map((d) => {
+                    const isSelected = selectedDays.includes(d.value);
+                    return (
+                      <button
+                        key={d.value}
+                        type="button"
+                        title={d.name}
+                        onClick={() => {
+                          setSelectedDays((prev) =>
+                            prev.includes(d.value)
+                              ? prev.filter((v) => v !== d.value)
+                              : [...prev, d.value].sort()
+                          );
+                        }}
+                        className={`w-8 h-8 font-black text-xs border-2 border-white flex items-center justify-center transition-all cursor-pointer ${
+                          isSelected
+                            ? "bg-[#FFD166] text-[#1A1A1A] font-black border-[#FFD166] shadow-[2px_2px_0_white]"
+                            : "bg-transparent text-white opacity-60 hover:opacity-100"
+                        }`}
+                      >
+                        {d.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Hours selection */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[8px] uppercase font-black text-white/50 mb-1">
+                    Hora Inicio
+                  </label>
+                  <input
+                    type="time"
+                    value={scheduleStart}
+                    onChange={(e) => setScheduleStart(e.target.value)}
+                    className="w-full bg-transparent border-b-2 border-white/30 text-xs py-1.5 font-mono outline-none text-[#FFD166] focus:border-[#FFD166] transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[8px] uppercase font-black text-white/50 mb-1">
+                    Hora Fin
+                  </label>
+                  <input
+                    type="time"
+                    value={scheduleEnd}
+                    onChange={(e) => setScheduleEnd(e.target.value)}
+                    className="w-full bg-transparent border-b-2 border-white/30 text-xs py-1.5 font-mono outline-none text-[#FFD166] focus:border-[#FFD166] transition-colors"
+                  />
+                </div>
+              </div>
+
+              {/* Timezone selection */}
+              <div>
+                <label className="block text-[8px] uppercase font-black text-white/50 mb-1">
+                  Zona Horaria
+                </label>
+                <select
+                  value={scheduleTimezone}
+                  onChange={(e) => setScheduleTimezone(e.target.value)}
+                  className="w-full bg-[#1A1A1A] border-b-2 border-white/30 text-xs py-1.5 font-mono outline-none text-[#FFD166] focus:border-[#FFD166] transition-colors cursor-pointer"
+                >
+                  <option value="Europe/Madrid">Madrid (Europe/Madrid)</option>
+                  <option value="UTC">UTC</option>
+                  <option value="America/New_York">New York (America/New_York)</option>
+                  <option value="America/Mexico_City">Mexico City (America/Mexico_City)</option>
+                  <option value="America/Argentina/Buenos_Aires">Buenos Aires (Argentina)</option>
+                  <option value="Europe/London">London (Europe/London)</option>
+                </select>
+              </div>
+
+              <button
+                onClick={handleSaveScheduleConfig}
+                className="w-full border-2 border-[#FFD166] py-2 text-[10px] font-black uppercase bg-transparent text-[#FFD166] hover:bg-[#FFD166] hover:text-[#1A1A1A] hover:-translate-x-px hover:-translate-y-px transition-all cursor-pointer"
+              >
+                Guardar Horario
               </button>
             </div>
 

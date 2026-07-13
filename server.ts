@@ -3,7 +3,16 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { fileURLToPath } from 'url';
-import { getConfig, saveConfig } from "./src/d1.js";
+import { 
+  getConfig, 
+  saveConfig, 
+  getScheduledPosts, 
+  schedulePosts, 
+  deleteScheduledPost,
+  getOldestPendingPost,
+  updatePostStatus,
+  getRecentSentPosts
+} from "./src/d1.js";
 import { extractFolderId, fetchDriveEntries, fetchSingleDriveFile, fetchGenericJsonUrl } from "./src/drive.js";
 import { sendToTelegram, sendBatchToTelegram } from "./src/telegram.js";
 
@@ -119,6 +128,168 @@ async function startServer() {
       res.status(500).json({ error: e instanceof Error ? e.message : "Failed to send to Telegram" });
     }
   });
+
+  app.get("/api/telegram/schedule", async (req, res) => {
+    try {
+      const results = await getScheduledPosts();
+      res.json({ entries: results });
+    } catch (e) {
+      console.error("Error fetching scheduled posts:", e);
+      res.status(500).json({ error: "Failed to fetch scheduled posts" });
+    }
+  });
+
+  app.post("/api/telegram/schedule", async (req, res) => {
+    try {
+      const { entries, template } = req.body;
+      if (!entries || !Array.isArray(entries) || entries.length === 0) {
+        res.status(400).json({ error: "No entries to schedule" });
+        return;
+      }
+
+      await schedulePosts(entries, template);
+      res.json({ success: entries.length });
+    } catch (e) {
+      console.error("Error scheduling posts:", e);
+      res.status(500).json({ error: "Failed to schedule posts" });
+    }
+  });
+
+  app.delete("/api/telegram/schedule", async (req, res) => {
+    try {
+      const id = req.query.id as string;
+      if (!id) {
+        res.status(400).json({ error: "ID is required" });
+        return;
+      }
+
+      await deleteScheduledPost(id);
+      res.json({ status: "ok" });
+    } catch (e) {
+      console.error("Error deleting scheduled post:", e);
+      res.status(500).json({ error: "Failed to delete scheduled post" });
+    }
+  });
+
+  // Local schedule simulator: check every minute
+  setInterval(async () => {
+    try {
+      const config = await getConfig();
+      if (!config.botToken || !config.channelId || !config.scheduleDays) {
+        return;
+      }
+
+      const timezone = config.scheduleTimezone || "Europe/Madrid";
+      const days = config.scheduleDays.split(",").map(Number);
+      const start = config.scheduleStart;
+      const end = config.scheduleEnd;
+
+      const now = new Date();
+      const formatter = new Intl.DateTimeFormat("en-US", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+        weekday: "long",
+      });
+
+      const parts = formatter.formatToParts(now);
+      const partsMap = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+
+      const weekdayStr = partsMap.weekday;
+      const hourStr = partsMap.hour;
+      const minuteStr = partsMap.minute;
+
+      const dayMap: Record<string, number> = {
+        "Sunday": 0,
+        "Monday": 1,
+        "Tuesday": 2,
+        "Wednesday": 3,
+        "Thursday": 4,
+        "Friday": 5,
+        "Saturday": 6,
+      };
+
+      const currentDay = dayMap[weekdayStr];
+      const currentTimeStr = `${hourStr}:${minuteStr}`;
+
+      if (!days.includes(currentDay)) {
+        return;
+      }
+
+      if (start && end) {
+        if (currentTimeStr < start || currentTimeStr > end) {
+          return;
+        }
+      }
+
+      // LÍMITE: "Solo quiero que se envie un post por dia."
+      // Check if we've already sent a post on this calendar day in target timezone
+      const yearStr = partsMap.year;
+      const monthStr = partsMap.month;
+      const dayStr = partsMap.day;
+      const currentDateTzStr = `${yearStr}-${monthStr}-${dayStr}`;
+
+      const recentSent = await getRecentSentPosts();
+      let alreadySentToday = false;
+
+      for (const sentPost of recentSent) {
+        if (sentPost.sent_at) {
+          const sentDate = new Date(sentPost.sent_at as string);
+          const sentParts = formatter.formatToParts(sentDate);
+          const sentPartsMap = Object.fromEntries(sentParts.map((p) => [p.type, p.value]));
+          const sentDateTzStr = `${sentPartsMap.year}-${sentPartsMap.month}-${sentPartsMap.day}`;
+
+          if (sentDateTzStr === currentDateTzStr) {
+            alreadySentToday = true;
+            break;
+          }
+        }
+      }
+
+      if (alreadySentToday) {
+        return;
+      }
+
+      // Fetch oldest pending post
+      const oldestPending = await getOldestPendingPost();
+      if (!oldestPending) {
+        return;
+      }
+
+      const id = oldestPending.id as number;
+      console.log(`[Local Scheduler] Processing post ${id}: "${oldestPending.title}"`);
+
+      try {
+        // Send to Telegram
+        await sendToTelegram(
+          config.botToken,
+          config.channelId,
+          {
+            title: oldestPending.title as string,
+            summary: oldestPending.summary as string,
+            link: oldestPending.link as string,
+            category: oldestPending.category as string,
+          },
+          oldestPending.template as string
+        );
+
+        // Update status to 'sent'
+        await updatePostStatus(id, "sent");
+        console.log(`[Local Scheduler] Post ${id} successfully sent.`);
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error(`[Local Scheduler] Failed to send post ${id}:`, errMsg);
+        await updatePostStatus(id, "failed", errMsg);
+      }
+    } catch (e) {
+      console.error("[Local Scheduler] Error in schedule check:", e);
+    }
+  }, 60000); // Check every minute
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
