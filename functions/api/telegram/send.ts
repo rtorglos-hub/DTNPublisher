@@ -40,8 +40,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       });
     }
 
-    const defaultTemplate =
-      "📢 *{title}*\n\n📝 {summary}\n\n------------------------\n🔗 Read full article: {link}\n\n#{category} #GlobalNews";
+    const defaultTemplate = "{texto_telegram}\n\n[button:👉 Leer más]";
 
     const result = await sendBatchToTelegram(
       botToken,

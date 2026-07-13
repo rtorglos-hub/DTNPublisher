@@ -18,7 +18,29 @@ export async function sendToTelegram(
   entry: DriveEntry,
   template: string
 ): Promise<void> {
-  const message = fillTemplate(template, entry);
+  let message = fillTemplate(template, entry);
+  let replyMarkup: any = undefined;
+
+  const buttonRegex = /\[button:(.*?)\]/;
+  const match = message.match(buttonRegex);
+  if (match) {
+    const buttonText = match[1].trim();
+    message = message.replace(buttonRegex, "").trim();
+
+    const url = entry.link || entry.fuente_url;
+    if (url) {
+      replyMarkup = {
+        inline_keyboard: [
+          [
+            {
+              text: buttonText,
+              url: String(url),
+            },
+          ],
+        ],
+      };
+    }
+  }
 
   const res = await fetch(
     `https://api.telegram.org/bot${botToken}/sendMessage`,
@@ -28,7 +50,8 @@ export async function sendToTelegram(
       body: JSON.stringify({
         chat_id: channelId,
         text: message,
-        parse_mode: "Markdown",
+        parse_mode: "HTML",
+        reply_markup: replyMarkup,
       }),
     }
   );

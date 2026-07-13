@@ -54,7 +54,7 @@ export default function App() {
   const [fetching, setFetching] = useState(false);
   const [sending, setSending] = useState(false);
   const [testingBot, setTestingBot] = useState(false);
-  const [template, setTemplate] = useState("{texto_telegram}");
+  const [template, setTemplate] = useState("{texto_telegram}\n\n[button:👉 Leer más]");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -842,9 +842,21 @@ export default function App() {
 
                         {/* Inline preview panel (no absolute positioning) */}
                         {previewOpen === originalIndex && (
-                          <pre className="mt-3 border-2 border-[#1A1A1A] bg-[#FFFBE6] p-3 text-[9px] font-mono whitespace-pre-wrap shadow-[3px_3px_0_#1A1A1A] max-h-[200px] overflow-y-auto">
-                            {previewText}
-                          </pre>
+                          <div className="mt-3 space-y-2">
+                            <pre className="border-2 border-[#1A1A1A] bg-[#FFFBE6] p-3 text-[9px] font-mono whitespace-pre-wrap shadow-[3px_3px_0_#1A1A1A] max-h-[200px] overflow-y-auto">
+                              {previewText.replace(/\[button:(.*?)\]/, "").trim()}
+                            </pre>
+                            {previewText.match(/\[button:(.*?)\]/) && (entry.link || entry.fuente_url) && (
+                              <a
+                                href={(entry.link || entry.fuente_url) as string}
+                                target="_blank"
+                                rel="noreferrer noopener"
+                                className="w-full border-2 border-[#1A1A1A] py-1.5 text-[9px] font-black uppercase bg-[#FFD166] text-[#1A1A1A] flex items-center justify-center gap-1.5 shadow-[2px_2px_0_#1A1A1A] hover:bg-[#F2C14E] transition-all"
+                              >
+                                {previewText.match(/\[button:(.*?)\]/)?.[1].trim() || "👉 Leer más"}
+                              </a>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
