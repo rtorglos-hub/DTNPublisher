@@ -239,6 +239,24 @@ GDRIVE_API_KEY=
 
 ---
 
+## Instalación como App (PWA)
+
+DTN Publisher es una **Progressive Web App (PWA)** y puede instalarse en la pantalla de inicio de tu dispositivo Android como si fuera una app nativa.
+
+### Requisitos
+- Google Chrome en Android (versión 76+).
+- Haber accedido al menos una vez a la aplicación para que se registre el Service Worker.
+
+### Instalación
+1. Abre la aplicación en Chrome Android.
+2. Espera unos segundos a que aparezca el banner **"Añadir a pantalla de inicio"** en la parte inferior de la pantalla y pulsa **Instalar**.
+3. Si no aparece el banner, abre el menú ⋮ (tres puntos) > **Instalar app**.
+4. Confirma en el diálogo de instalación.
+
+La aplicación aparecerá en tu pantalla de inicio con el icono ⚡ y se abrirá en modo **standalone** (sin la barra de direcciones del navegador).
+
+---
+
 ## Estructura del proyecto
 
 ```
