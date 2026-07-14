@@ -68,6 +68,8 @@ Permite gestionar un flujo de publicación editorial en tres pasos:
 
 > **Cola de programados**: cada tarjeta de la cola muestra una etiqueta `Canal 1` o `Canal 2`, además del estado (`Pendiente`, `Enviado` o `Fallido`). Esta etiqueta indica el destino real que usará el Worker Scheduler.
 
+> **Límite diario**: el programador automático envía como máximo **un post por canal y día**. Si tienes publicaciones pendientes para `Canal 1` y `Canal 2`, cada canal puede enviar una publicación diaria dentro de la ventana horaria configurada.
+
 ### 4. Limpieza Automática de Publicaciones Enviadas (panel derecho)
 
 - En la sección **Limpieza Automática** puedes configurar el intervalo de días (por ejemplo, `10` días) tras el cual los posts que ya fueron enviados con éxito se borrarán automáticamente de la base de datos D1.
@@ -208,6 +210,8 @@ La aplicación utiliza un Cloudflare Worker adicional para ejecutar el programad
 - **Proyecto:** Ubicado en la carpeta `worker-scheduler/`.
 - **Funcionamiento:** Se ejecuta mediante un disparador Cron cada 15 minutos (configurable en `worker-scheduler/wrangler.jsonc`) para enviar los posts pendientes que coincidan con la ventana horaria configurada y realizar tareas de mantenimiento como la limpieza automática de posts antiguos.
 - **Destino de envío:** cada post programado se envía al `channel_id` guardado en `scheduled_posts`. Si un post antiguo no tiene canal guardado, el Worker usa como respaldo el canal principal de `config`.
+- **Límite por canal:** el Worker evita enviar más de un post diario por cada `channel_id`. Si un canal ya envió hoy, buscará otro post pendiente de un canal que todavía no haya enviado.
+- **Robustez:** antes de enviar, el Worker marca el post como `sending` de forma condicional para reducir duplicados si dos ejecuciones del cron se solapan.
 - **Despliegue del Worker:**
   ```bash
   cd worker-scheduler
@@ -241,6 +245,16 @@ npx wrangler pages dev dist --d1 DB
 
 La app estará disponible en `http://127.0.0.1:8788`.
 
+### Validación
+
+```bash
+# Typecheck completo: app, Pages Functions y Worker Scheduler
+npm run lint
+
+# Build de producción
+npm run build
+```
+
 ### Variables de entorno obligatorias y opcionales
 
 Crea un archivo `.env` en la raíz si necesitas configuración adicional:
@@ -258,11 +272,11 @@ GDRIVE_API_KEY=
 
 ## API Endpoints (Pages Functions)
 
-> **Nota**: Todos los endpoints (excepto `/api/login` y `/api/logout`) están protegidos mediante middleware y requieren autenticación válida a través de la cookie `session_token` o la cabecera `Authorization: Bearer <token>`.
+> **Nota**: Todos los endpoints (excepto `/api/login` y `/api/logout`) están protegidos mediante middleware y requieren autenticación válida a través de la cookie segura `session_token`.
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| `POST` | `/api/login` | Valida credenciales y genera cookie/token de sesión |
+| `POST` | `/api/login` | Valida credenciales y genera la cookie segura de sesión |
 | `POST` | `/api/logout` | Cierra la sesión y borra la cookie `session_token` |
 | `GET` | `/api/health` | Verifica la conexión con la base de datos D1 |
 | `GET` | `/api/config` | Obtiene la configuración guardada (bot token, canal 1, canal 2, canal activo, drive url, horario y limpieza) |

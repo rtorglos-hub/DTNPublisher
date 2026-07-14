@@ -32,7 +32,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   if (method === "POST") {
     try {
-      const { entries, template } = (await context.request.json()) as {
+      const { entries, template, targetChannel } = (await context.request.json()) as {
         entries?: DriveEntry[];
         template?: string;
         targetChannel?: "primary" | "secondary";

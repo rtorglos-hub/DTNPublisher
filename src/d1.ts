@@ -146,11 +146,19 @@ export async function deleteScheduledPost(id: string): Promise<void> {
   await query("DELETE FROM scheduled_posts WHERE id = ?", [id]);
 }
 
-export async function getOldestPendingPost(): Promise<Record<string, unknown> | null> {
+export async function getPendingPosts(limit = 50): Promise<Record<string, unknown>[]> {
   const result = await query(
-    "SELECT * FROM scheduled_posts WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1"
+    "SELECT * FROM scheduled_posts WHERE status = 'pending' ORDER BY created_at ASC LIMIT ?",
+    [limit]
   );
-  return result.results.length > 0 ? result.results[0] : null;
+  return result.results;
+}
+
+export async function claimScheduledPost(id: number): Promise<void> {
+  await query(
+    "UPDATE scheduled_posts SET status = 'sending', error_message = NULL WHERE id = ? AND status = 'pending'",
+    [id]
+  );
 }
 
 export async function updatePostStatus(
@@ -173,7 +181,7 @@ export async function updatePostStatus(
 
 export async function getRecentSentPosts(): Promise<Record<string, unknown>[]> {
   const result = await query(
-    "SELECT sent_at FROM scheduled_posts WHERE status = 'sent' AND sent_at IS NOT NULL ORDER BY sent_at DESC LIMIT 50"
+    "SELECT sent_at, channel_id FROM scheduled_posts WHERE status = 'sent' AND sent_at IS NOT NULL ORDER BY sent_at DESC LIMIT 100"
   );
   return result.results;
 }

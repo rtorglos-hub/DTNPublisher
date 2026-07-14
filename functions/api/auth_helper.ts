@@ -18,6 +18,22 @@ export async function generateSignature(message: string, secret: string): Promis
     .join("");
 }
 
+export async function timingSafeEqualString(a: string, b: string): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const [aHash, bHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(a)),
+    crypto.subtle.digest("SHA-256", encoder.encode(b)),
+  ]);
+
+  const aBytes = new Uint8Array(aHash);
+  const bBytes = new Uint8Array(bHash);
+  let diff = aBytes.length ^ bBytes.length;
+  for (let i = 0; i < Math.max(aBytes.length, bBytes.length); i++) {
+    diff |= (aBytes[i] || 0) ^ (bBytes[i] || 0);
+  }
+  return diff === 0;
+}
+
 export async function verifyToken(token: string, secret: string, expectedEmail: string): Promise<boolean> {
   if (!token) return false;
   const parts = token.split(":");
@@ -34,7 +50,7 @@ export async function verifyToken(token: string, secret: string, expectedEmail: 
 
     const message = `${emailBase64}:${expiresStr}`;
     const expectedSignature = await generateSignature(message, secret);
-    return signature === expectedSignature;
+    return timingSafeEqualString(signature, expectedSignature);
   } catch (e) {
     return false;
   }

@@ -1,4 +1,4 @@
-import { AuthEnv, generateSignature } from "./auth_helper";
+import { AuthEnv, generateSignature, timingSafeEqualString } from "./auth_helper";
 
 export const onRequestPost: PagesFunction<AuthEnv> = async (context) => {
   const emailVal = context.env.AUTH_EMAIL;
@@ -26,7 +26,13 @@ export const onRequestPost: PagesFunction<AuthEnv> = async (context) => {
       );
     }
 
-    if (email !== emailVal || password !== passwordVal) {
+    const [emailMatches, passwordMatches] = await Promise.all([
+      timingSafeEqualString(email, emailVal),
+      timingSafeEqualString(password, passwordVal),
+    ]);
+
+    if (!emailMatches || !passwordMatches) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
       return new Response(
         JSON.stringify({ error: "Email o contraseña incorrectos." }),
         { status: 401, headers: { "Content-Type": "application/json" } }
@@ -41,7 +47,7 @@ export const onRequestPost: PagesFunction<AuthEnv> = async (context) => {
     const token = `${emailBase64}:${expires}:${signature}`;
 
     return new Response(
-      JSON.stringify({ status: "ok", token }),
+      JSON.stringify({ status: "ok" }),
       {
         headers: {
           "Content-Type": "application/json",

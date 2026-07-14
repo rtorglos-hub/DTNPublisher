@@ -100,10 +100,10 @@ export default {
       const currentDateTzStr = `${yearStr}-${monthStr}-${dayStr}`;
 
       const recentSentRes = await env.DB.prepare(
-        "SELECT sent_at FROM scheduled_posts WHERE status = 'sent' AND sent_at IS NOT NULL ORDER BY sent_at DESC LIMIT 50"
-      ).all<{ sent_at: string }>();
+        "SELECT sent_at, channel_id FROM scheduled_posts WHERE status = 'sent' AND sent_at IS NOT NULL ORDER BY sent_at DESC LIMIT 100"
+      ).all<{ sent_at: string; channel_id: string | null }>();
 
-      let alreadySentToday = false;
+      const sentTodayByChannel = new Set<string>();
       if (recentSentRes.results) {
         for (const sentPost of recentSentRes.results) {
           if (sentPost.sent_at) {
@@ -113,21 +113,15 @@ export default {
             const sentDateTzStr = `${sentPartsMap.year}-${sentPartsMap.month}-${sentPartsMap.day}`;
 
             if (sentDateTzStr === currentDateTzStr) {
-              alreadySentToday = true;
-              break;
+              sentTodayByChannel.add(sentPost.channel_id || config.channel_id);
             }
           }
         }
       }
 
-      if (alreadySentToday) {
-        console.log(`[Scheduler] A post has already been sent today (${currentDateTzStr}). Skipping.`);
-        return;
-      }
-
-      // 3. Fetch the oldest pending post
+      // 3. Fetch pending posts and choose the oldest one whose channel has not sent today
       const pendingRes = await env.DB.prepare(
-        "SELECT * FROM scheduled_posts WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1"
+        "SELECT * FROM scheduled_posts WHERE status = 'pending' ORDER BY created_at ASC LIMIT 50"
       ).all<{
         id: number;
         title: string;
@@ -143,13 +137,44 @@ export default {
         return;
       }
 
-      const post = pendingRes.results[0];
+      let post: (typeof pendingRes.results)[number] | null = null;
+      let targetChannelId = "";
+
+      for (const candidate of pendingRes.results) {
+        const candidateChannelId = candidate.channel_id || config.channel_id;
+        if (!candidateChannelId) {
+          await env.DB.prepare(
+            "UPDATE scheduled_posts SET status = 'failed', sent_at = datetime('now'), error_message = ? WHERE id = ? AND status = 'pending'"
+          ).bind("No Telegram channel configured for this scheduled post", candidate.id).run();
+          continue;
+        }
+
+        if (!sentTodayByChannel.has(candidateChannelId)) {
+          post = candidate;
+          targetChannelId = candidateChannelId;
+          break;
+        }
+      }
+
+      if (!post) {
+        console.log(`[Scheduler] All pending post channels have already sent today (${currentDateTzStr}). Skipping.`);
+        return;
+      }
+
       const id = post.id;
-      const targetChannelId = post.channel_id || config.channel_id;
       if (!targetChannelId) {
         await env.DB.prepare(
-          "UPDATE scheduled_posts SET status = 'failed', sent_at = datetime('now'), error_message = ? WHERE id = ?"
+          "UPDATE scheduled_posts SET status = 'failed', sent_at = datetime('now'), error_message = ? WHERE id = ? AND status = 'pending'"
         ).bind("No Telegram channel configured for this scheduled post", id).run();
+        return;
+      }
+
+      const claimResult = await env.DB.prepare(
+        "UPDATE scheduled_posts SET status = 'sending', error_message = NULL WHERE id = ? AND status = 'pending'"
+      ).bind(id).run();
+
+      if (claimResult.meta.changes !== 1) {
+        console.log(`[Scheduler] Post ${id} was already claimed by another run. Skipping.`);
         return;
       }
 
@@ -212,7 +237,7 @@ async function sendToTelegram(
     message = message.replace(buttonRegex, "").trim();
 
     const url = post.link;
-    if (url) {
+    if (isValidTelegramButtonUrl(url)) {
       replyMarkup = {
         inline_keyboard: [
           [
@@ -224,6 +249,10 @@ async function sendToTelegram(
         ],
       };
     }
+  }
+
+  if (message.length > 4096) {
+    throw new Error(`Telegram message is too long (${message.length}/4096 characters)`);
   }
 
   const res = await fetch(
@@ -243,5 +272,15 @@ async function sendToTelegram(
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Telegram API error: ${res.status} - ${err}`);
+  }
+}
+
+function isValidTelegramButtonUrl(url: unknown): url is string {
+  if (typeof url !== "string" || !url.trim()) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
   }
 }

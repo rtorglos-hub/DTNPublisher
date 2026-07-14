@@ -25,18 +25,10 @@ export const onRequest: PagesFunction<AuthEnv> = async (context) => {
     );
   }
 
-  // 1. Intentar leer la cookie session_token
+  // Intentar leer la cookie session_token
   const cookieHeader = context.request.headers.get("Cookie") || "";
   const cookies = parseCookies(cookieHeader);
-  let token = cookies["session_token"];
-
-  // 2. Si no hay cookie, intentar leer el header Authorization
-  if (!token) {
-    const authHeader = context.request.headers.get("Authorization") || "";
-    if (authHeader.startsWith("Bearer ")) {
-      token = authHeader.substring(7);
-    }
-  }
+  const token = cookies["session_token"];
 
   // Validar el token
   if (token) {

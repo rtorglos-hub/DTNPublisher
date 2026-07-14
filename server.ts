@@ -9,7 +9,8 @@ import {
   getScheduledPosts, 
   schedulePosts, 
   deleteScheduledPost,
-  getOldestPendingPost,
+  getPendingPosts,
+  claimScheduledPost,
   updatePostStatus,
   getRecentSentPosts
 } from "./src/d1.js";
@@ -246,7 +247,7 @@ async function startServer() {
       const currentDateTzStr = `${yearStr}-${monthStr}-${dayStr}`;
 
       const recentSent = await getRecentSentPosts();
-      let alreadySentToday = false;
+      const sentTodayByChannel = new Set<string>();
 
       for (const sentPost of recentSent) {
         if (sentPost.sent_at) {
@@ -256,30 +257,46 @@ async function startServer() {
           const sentDateTzStr = `${sentPartsMap.year}-${sentPartsMap.month}-${sentPartsMap.day}`;
 
           if (sentDateTzStr === currentDateTzStr) {
-            alreadySentToday = true;
-            break;
+            sentTodayByChannel.add((sentPost.channel_id as string) || config.channelId);
           }
         }
       }
 
-      if (alreadySentToday) {
+      const pendingPosts = await getPendingPosts();
+      if (pendingPosts.length === 0) {
         return;
       }
 
-      // Fetch oldest pending post
-      const oldestPending = await getOldestPendingPost();
-      if (!oldestPending) {
+      let selectedPost: Record<string, unknown> | null = null;
+      let targetChannelId = "";
+
+      for (const pendingPost of pendingPosts) {
+        const candidateChannelId = (pendingPost.channel_id as string) || config.channelId;
+        if (!candidateChannelId) {
+          await updatePostStatus(pendingPost.id as number, "failed", "No Telegram channel configured for this scheduled post");
+          continue;
+        }
+
+        if (!sentTodayByChannel.has(candidateChannelId)) {
+          selectedPost = pendingPost;
+          targetChannelId = candidateChannelId;
+          break;
+        }
+      }
+
+      if (!selectedPost) {
         return;
       }
 
-      const id = oldestPending.id as number;
-      const targetChannelId = (oldestPending.channel_id as string) || config.channelId;
+      const id = selectedPost.id as number;
       if (!targetChannelId) {
         await updatePostStatus(id, "failed", "No Telegram channel configured for this scheduled post");
         return;
       }
 
-      console.log(`[Local Scheduler] Processing post ${id}: "${oldestPending.title}"`);
+      await claimScheduledPost(id);
+
+      console.log(`[Local Scheduler] Processing post ${id}: "${selectedPost.title}"`);
 
       try {
         // Send to Telegram
@@ -287,12 +304,12 @@ async function startServer() {
           config.botToken,
           targetChannelId,
           {
-            title: oldestPending.title as string,
-            summary: oldestPending.summary as string,
-            link: oldestPending.link as string,
-            category: oldestPending.category as string,
+            title: selectedPost.title as string,
+            summary: selectedPost.summary as string,
+            link: selectedPost.link as string,
+            category: selectedPost.category as string,
           },
-          oldestPending.template as string
+          selectedPost.template as string
         );
 
         // Update status to 'sent'

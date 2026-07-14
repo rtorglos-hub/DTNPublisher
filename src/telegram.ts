@@ -12,6 +12,16 @@ function fillTemplate(template: string, entry: DriveEntry): string {
     .replace(/\{category\}/g, String(entry.category || entry.categoria || ""));
 }
 
+function isValidTelegramButtonUrl(url: unknown): url is string {
+  if (typeof url !== "string" || !url.trim()) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export async function sendToTelegram(
   botToken: string,
   channelId: string,
@@ -28,7 +38,7 @@ export async function sendToTelegram(
     message = message.replace(buttonRegex, "").trim();
 
     const url = entry.link || entry.fuente_url;
-    if (url) {
+    if (isValidTelegramButtonUrl(url)) {
       replyMarkup = {
         inline_keyboard: [
           [
@@ -40,6 +50,10 @@ export async function sendToTelegram(
         ],
       };
     }
+  }
+
+  if (message.length > 4096) {
+    throw new Error(`Telegram message is too long (${message.length}/4096 characters)`);
   }
 
   const res = await fetch(
@@ -67,18 +81,23 @@ export async function sendBatchToTelegram(
   channelId: string,
   entries: DriveEntry[],
   template: string
-): Promise<{ success: number; failed: number }> {
+): Promise<{ success: number; failed: number; errors: { title: string; error: string }[] }> {
   let success = 0;
   let failed = 0;
+  const errors: { title: string; error: string }[] = [];
 
   for (const entry of entries) {
     try {
       await sendToTelegram(botToken, channelId, entry, template);
       success++;
-    } catch {
+    } catch (err) {
       failed++;
+      errors.push({
+        title: String(entry.title || entry.fuente_nombre || "Sin título"),
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
-  return { success, failed };
+  return { success, failed, errors };
 }

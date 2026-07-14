@@ -149,15 +149,9 @@ export default function App() {
 
   // Authenticated fetch wrapper
   const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
-    const token = localStorage.getItem("session_token");
-    const headers = { ...options.headers } as Record<string, string>;
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-    const response = await fetch(url, { ...options, headers });
+    const response = await fetch(url, options);
     if (response.status === 401) {
       setIsLoggedIn(false);
-      localStorage.removeItem("session_token");
     }
     return response;
   };
@@ -499,8 +493,9 @@ export default function App() {
       if (!r.ok) {
         showToast(data.error || "Error al enviar mensajes", "error", "Error de Envío");
       } else {
+        const firstError = Array.isArray(data.errors) && data.errors.length > 0 ? ` · ${data.errors[0].error}` : "";
         showToast(
-          `Publicados: ${data.success} | Fallidos: ${data.failed}`,
+          `Publicados: ${data.success} | Fallidos: ${data.failed}${firstError}`,
           data.failed === 0 ? "success" : "info",
           "Envío Terminado"
         );
@@ -541,24 +536,17 @@ export default function App() {
         return;
       }
 
-      if (data.token) {
-        localStorage.setItem("session_token", data.token);
-      }
       setIsLoggedIn(true);
       showToast("Sesión iniciada correctamente", "success", "Acceso Concedido");
 
       // Cargar configuraciones tras autenticación
-      const configRes = await fetch("/api/config", {
-        headers: data.token ? { "Authorization": `Bearer ${data.token}` } : {}
-      });
+      const configRes = await fetch("/api/config");
       if (configRes.ok) {
         const configData = await configRes.json();
         setConfig(configData);
       }
       
-      const healthRes = await fetch("/api/health", {
-        headers: data.token ? { "Authorization": `Bearer ${data.token}` } : {}
-      });
+      const healthRes = await fetch("/api/health");
       if (healthRes.ok) {
         const healthData = await healthRes.json();
         setDbConnected(healthData.db === "connected");
@@ -577,7 +565,6 @@ export default function App() {
     } catch (e) {
       // Ignorar error
     }
-    localStorage.removeItem("session_token");
     setIsLoggedIn(false);
     showToast("Sesión cerrada correctamente", "info", "Sesión Finalizada");
   }
