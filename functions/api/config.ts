@@ -5,6 +5,8 @@ interface Env {
 export interface AppConfig {
   botToken: string;
   channelId: string;
+  channelId2?: string;
+  selectedChannel?: "primary" | "secondary";
   driveUrl: string;
   scheduleDays?: string;
   scheduleStart?: string;
@@ -24,10 +26,12 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
   try {
     const { results } = await db
-      .prepare("SELECT bot_token, channel_id, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone, auto_delete_days FROM config WHERE id = 1")
+      .prepare("SELECT bot_token, channel_id, channel_id_2, selected_channel, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone, auto_delete_days FROM config WHERE id = 1")
       .all<{
         bot_token: string;
         channel_id: string;
+        channel_id_2?: string | null;
+        selected_channel?: string | null;
         drive_url: string;
         schedule_days: string | null;
         schedule_start: string | null;
@@ -41,6 +45,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         JSON.stringify({
           botToken: "",
           channelId: "",
+          channelId2: "",
+          selectedChannel: "primary",
           driveUrl: "",
           scheduleDays: "",
           scheduleStart: "",
@@ -57,6 +63,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       JSON.stringify({
         botToken: row.bot_token || "",
         channelId: row.channel_id || "",
+        channelId2: row.channel_id_2 || "",
+        selectedChannel: row.selected_channel === "secondary" ? "secondary" : "primary",
         driveUrl: row.drive_url || "",
         scheduleDays: row.schedule_days || "",
         scheduleStart: row.schedule_start || "",
@@ -88,11 +96,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     
     await db
       .prepare(
-        `INSERT INTO config (id, bot_token, channel_id, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone, auto_delete_days, updated_at)
-         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        `INSERT INTO config (id, bot_token, channel_id, channel_id_2, selected_channel, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone, auto_delete_days, updated_at)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
          ON CONFLICT(id) DO UPDATE SET
            bot_token = excluded.bot_token,
            channel_id = excluded.channel_id,
+           channel_id_2 = excluded.channel_id_2,
+           selected_channel = excluded.selected_channel,
            drive_url = excluded.drive_url,
            schedule_days = excluded.schedule_days,
            schedule_start = excluded.schedule_start,
@@ -104,6 +114,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       .bind(
         config.botToken || "",
         config.channelId || "",
+        config.channelId2 || "",
+        config.selectedChannel === "secondary" ? "secondary" : "primary",
         config.driveUrl || "",
         config.scheduleDays || "",
         config.scheduleStart || "",

@@ -1,6 +1,6 @@
 # DTN Publisher
 
-**DTN Publisher** es una herramienta de publicación automatizada diseñada para extraer contenido desde **Google Drive** y enviarlo a canales de **Telegram** de forma selectiva, rápida y sin fricción.
+**DTN Publisher** es una herramienta de publicación automatizada diseñada para extraer contenido desde **Google Drive** y enviarlo a uno o dos canales de **Telegram** de forma selectiva, rápida y sin fricción.
 
 ---
 
@@ -10,7 +10,7 @@ Permite gestionar un flujo de publicación editorial en tres pasos:
 
 1. **Importar** un archivo JSON con publicaciones preparadas desde Google Drive.
 2. **Revisar y seleccionar** qué publicaciones enviar, con búsqueda y filtros por categoría.
-3. **Publicar** en un canal de Telegram con un solo clic.
+3. **Publicar o programar** en el canal de Telegram activo con un solo clic.
 
 ---
 
@@ -27,16 +27,21 @@ Permite gestionar un flujo de publicación editorial en tres pasos:
 
 ## Flujo de uso
 
-### 1. Configurar el Bot de Telegram (panel derecho)
+### 1. Configurar el Bot de Telegram y los canales (panel derecho)
 
 1. Crea un bot con [@BotFather](https://t.me/botfather) en Telegram y copia el **token**.
-2. Añade el bot a tu canal como **Administrador** con permiso de publicación de mensajes.
+2. Añade el bot a cada canal que quieras usar como **Administrador** con permiso de publicación de mensajes.
 3. En la app, ve al panel **Integraciones** (columna derecha):
    - Pega el token en el campo **Bot Token**.
-   - Escribe el **Channel ID**:
+   - Escribe el **Canal 1 ID**.
+   - Opcionalmente, escribe el **Canal 2 ID** si quieres publicar con el mismo bot en un segundo canal.
+   - Elige el **canal activo para nuevos posts** con el selector `Canal 1` / `Canal 2`.
+   - Formato de IDs:
      - Canales públicos: `@nombre_del_canal`
      - Canales privados: reenvía un mensaje del canal a [@RawDataBot](https://t.me/rawdatabot) y copia el `chat id` (empieza por `-100`).
 4. Pulsa **Guardar y Validar** — la app verificará el token en tiempo real con la API de Telegram y mostrará el nombre del bot si es correcto.
+
+> **Asignación de canal**: los posts programados conservan el canal que estaba activo en el momento de programarlos. Si programas posts con `Canal 1`, después cambias a `Canal 2` y programas más posts, la cola quedará mezclada correctamente: cada publicación se enviará al canal que tenía asignado al entrar en la cola.
 
 ### 2. Conectar Google Drive (panel izquierdo)
 
@@ -56,9 +61,12 @@ Permite gestionar un flujo de publicación editorial en tres pasos:
 - Pulsa **Copiar** para copiar el mensaje al portapapeles para uso manual.
 - Selecciona una o varias publicaciones mediante los checkboxes.
 - Pulsa **Seleccionar Todo** para seleccionar todas las visibles (filtradas).
-- Pulsa **Enviar (N)** para publicar las seleccionadas en el canal de Telegram.
+- Pulsa **Enviar (N)** para publicar las seleccionadas inmediatamente en el canal activo.
+- Pulsa **Programar (N)** para añadirlas a la cola usando el canal activo en ese momento.
 
 > **Persistencia**: La bandeja de entrada se almacena localmente en el navegador (`localStorage`) de tu dispositivo. Al cerrar sesión, recargar la página o cerrar el navegador, los posts de la bandeja no desaparecerán.
+
+> **Cola de programados**: cada tarjeta de la cola muestra una etiqueta `Canal 1` o `Canal 2`, además del estado (`Pendiente`, `Enviado` o `Fallido`). Esta etiqueta indica el destino real que usará el Worker Scheduler.
 
 ### 4. Limpieza Automática de Publicaciones Enviadas (panel derecho)
 
@@ -136,13 +144,38 @@ La plantilla define cómo se formatea el mensaje antes de enviarse. Las variable
 
 #### 1. Crear la base de datos D1
 En el panel de Cloudflare, ve a **Workers & Pages** > **D1** > **Create database**.
-Ponle el nombre `dtnpblisher` y ejecuta la migración inicial:
+Ponle el nombre `dtnpblisher` y ejecuta las migraciones:
 
 ```bash
 npx wrangler d1 migrations apply dtnpblisher --remote
 ```
 
-O pega el contenido de [`migrations/0000_init.sql`](migrations/0000_init.sql) en la consola SQL de D1.
+O pega el contenido de las migraciones de [`migrations/`](migrations/) en la consola SQL de D1, en orden.
+
+Migraciones actuales:
+
+| Archivo | Descripción |
+|---------|-------------|
+| `0000_init.sql` | Crea la tabla `config` con token, canal principal y enlace de Drive |
+| `0001_schedule.sql` | Añade configuración horaria y crea `scheduled_posts` |
+| `0002_auto_delete.sql` | Añade `auto_delete_days` |
+| `0003_second_channel.sql` | Añade segundo canal y guarda el canal asignado a cada post programado |
+
+Si tu base ya existía antes de la versión con segundo canal, aplica:
+
+```sql
+ALTER TABLE config ADD COLUMN channel_id_2 TEXT;
+ALTER TABLE config ADD COLUMN selected_channel TEXT DEFAULT 'primary';
+
+ALTER TABLE scheduled_posts ADD COLUMN channel_id TEXT;
+ALTER TABLE scheduled_posts ADD COLUMN channel_label TEXT;
+
+UPDATE scheduled_posts
+SET
+  channel_id = (SELECT channel_id FROM config WHERE id = 1),
+  channel_label = 'Canal 1'
+WHERE channel_id IS NULL OR channel_id = '';
+```
 
 #### 2. Configurar el proyecto de Pages
 1. En Cloudflare, ve a **Workers & Pages** > **Create application** > **Pages** > **Connect to Git**.
@@ -174,6 +207,7 @@ La aplicación utiliza un Cloudflare Worker adicional para ejecutar el programad
 - **URL del Worker:** `https://dtn-publisher-scheduler.retroregalos.workers.dev/`
 - **Proyecto:** Ubicado en la carpeta `worker-scheduler/`.
 - **Funcionamiento:** Se ejecuta mediante un disparador Cron cada 15 minutos (configurable en `worker-scheduler/wrangler.jsonc`) para enviar los posts pendientes que coincidan con la ventana horaria configurada y realizar tareas de mantenimiento como la limpieza automática de posts antiguos.
+- **Destino de envío:** cada post programado se envía al `channel_id` guardado en `scheduled_posts`. Si un post antiguo no tiene canal guardado, el Worker usa como respaldo el canal principal de `config`.
 - **Despliegue del Worker:**
   ```bash
   cd worker-scheduler
@@ -231,10 +265,13 @@ GDRIVE_API_KEY=
 | `POST` | `/api/login` | Valida credenciales y genera cookie/token de sesión |
 | `POST` | `/api/logout` | Cierra la sesión y borra la cookie `session_token` |
 | `GET` | `/api/health` | Verifica la conexión con la base de datos D1 |
-| `GET` | `/api/config` | Obtiene la configuración guardada (bot token, channel id, drive url, auto_delete_days) |
+| `GET` | `/api/config` | Obtiene la configuración guardada (bot token, canal 1, canal 2, canal activo, drive url, horario y limpieza) |
 | `POST` | `/api/config` | Guarda la configuración en D1 |
 | `POST` | `/api/drive/fetch` | Descarga y normaliza el JSON desde Google Drive |
-| `POST` | `/api/telegram/send` | Envía las publicaciones seleccionadas al canal de Telegram |
+| `POST` | `/api/telegram/send` | Envía las publicaciones seleccionadas al canal activo indicado |
+| `GET` | `/api/telegram/schedule` | Lista la cola de posts programados |
+| `POST` | `/api/telegram/schedule` | Programa publicaciones y guarda en cada una su canal de destino |
+| `DELETE` | `/api/telegram/schedule?id=...` | Elimina un post de la cola |
 | `POST` | `/api/telegram/test` | Valida el bot token con la API de Telegram (`getMe`) |
 
 ---
@@ -271,7 +308,10 @@ DTN-Publisher/
 │           ├── send.ts     # Envío a Telegram
 │           └── test.ts     # Validación del bot token
 ├── migrations/
-│   └── 0000_init.sql       # Esquema inicial de la base de datos D1
+│   ├── 0000_init.sql       # Esquema inicial de la base de datos D1
+│   ├── 0001_schedule.sql   # Cola y configuración de programación
+│   ├── 0002_auto_delete.sql        # Limpieza automática
+│   └── 0003_second_channel.sql     # Segundo canal y canal por post programado
 ├── src/
 │   ├── App.tsx             # Componente principal de la interfaz
 │   ├── drive.ts            # Lógica de descarga y normalización de Drive

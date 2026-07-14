@@ -102,11 +102,13 @@ async function startServer() {
 
   app.post("/api/telegram/send", async (req, res) => {
     try {
-      const { entries, template } = req.body;
+      const { entries, template, targetChannel } = req.body;
       const config = await getConfig();
+      const selectedChannel = targetChannel || config.selectedChannel || "primary";
+      const channelId = selectedChannel === "secondary" ? config.channelId2 : config.channelId;
 
-      if (!config.botToken || !config.channelId) {
-        res.status(400).json({ error: "Bot token and channel ID not configured" });
+      if (!config.botToken || !channelId) {
+        res.status(400).json({ error: selectedChannel === "secondary" ? "Canal 2 no está configurado" : "Canal 1 no está configurado" });
         return;
       }
 
@@ -117,7 +119,7 @@ async function startServer() {
 
       const result = await sendBatchToTelegram(
         config.botToken,
-        config.channelId,
+        channelId,
         entries,
         template || "📢 *{title}*\n\n📝 {summary}\n\n------------------------\n🔗 Read full article: {link}\n\n#{category} #GlobalNews"
       );
@@ -141,13 +143,22 @@ async function startServer() {
 
   app.post("/api/telegram/schedule", async (req, res) => {
     try {
-      const { entries, template } = req.body;
+      const { entries, template, targetChannel } = req.body;
       if (!entries || !Array.isArray(entries) || entries.length === 0) {
         res.status(400).json({ error: "No entries to schedule" });
         return;
       }
 
-      await schedulePosts(entries, template);
+      const config = await getConfig();
+      const selectedChannel = targetChannel || config.selectedChannel || "primary";
+      const channelId = selectedChannel === "secondary" ? config.channelId2 : config.channelId;
+      const channelLabel = selectedChannel === "secondary" ? "Canal 2" : "Canal 1";
+      if (!channelId) {
+        res.status(400).json({ error: `${channelLabel} no está configurado` });
+        return;
+      }
+
+      await schedulePosts(entries, template, channelId, channelLabel);
       res.json({ success: entries.length });
     } catch (e) {
       console.error("Error scheduling posts:", e);
@@ -175,7 +186,7 @@ async function startServer() {
   setInterval(async () => {
     try {
       const config = await getConfig();
-      if (!config.botToken || !config.channelId || !config.scheduleDays) {
+      if (!config.botToken || !config.scheduleDays) {
         return;
       }
 
@@ -262,13 +273,19 @@ async function startServer() {
       }
 
       const id = oldestPending.id as number;
+      const targetChannelId = (oldestPending.channel_id as string) || config.channelId;
+      if (!targetChannelId) {
+        await updatePostStatus(id, "failed", "No Telegram channel configured for this scheduled post");
+        return;
+      }
+
       console.log(`[Local Scheduler] Processing post ${id}: "${oldestPending.title}"`);
 
       try {
         // Send to Telegram
         await sendToTelegram(
           config.botToken,
-          config.channelId,
+          targetChannelId,
           {
             title: oldestPending.title as string,
             summary: oldestPending.summary as string,

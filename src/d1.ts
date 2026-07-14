@@ -49,6 +49,8 @@ async function query(sql: string, params: unknown[] = []): Promise<{ results: Re
 export interface AppConfig {
   botToken: string;
   channelId: string;
+  channelId2?: string;
+  selectedChannel?: "primary" | "secondary";
   driveUrl: string;
   scheduleDays?: string;
   scheduleStart?: string;
@@ -59,17 +61,19 @@ export interface AppConfig {
 
 export async function getConfig(): Promise<AppConfig> {
   const result = await query(
-    "SELECT bot_token, channel_id, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone, auto_delete_days FROM config WHERE id = 1"
+    "SELECT bot_token, channel_id, channel_id_2, selected_channel, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone, auto_delete_days FROM config WHERE id = 1"
   );
 
   if (result.results.length === 0) {
-    return { botToken: "", channelId: "", driveUrl: "", scheduleDays: "", scheduleStart: "", scheduleEnd: "", scheduleTimezone: "Europe/Madrid", autoDeleteDays: 10 };
+    return { botToken: "", channelId: "", channelId2: "", selectedChannel: "primary", driveUrl: "", scheduleDays: "", scheduleStart: "", scheduleEnd: "", scheduleTimezone: "Europe/Madrid", autoDeleteDays: 10 };
   }
 
   const row = result.results[0];
   return {
     botToken: (row.bot_token as string) || "",
     channelId: (row.channel_id as string) || "",
+    channelId2: (row.channel_id_2 as string) || "",
+    selectedChannel: row.selected_channel === "secondary" ? "secondary" : "primary",
     driveUrl: (row.drive_url as string) || "",
     scheduleDays: (row.schedule_days as string) || "",
     scheduleStart: (row.schedule_start as string) || "",
@@ -81,11 +85,13 @@ export async function getConfig(): Promise<AppConfig> {
 
 export async function saveConfig(config: AppConfig): Promise<void> {
   await query(
-    `INSERT INTO config (id, bot_token, channel_id, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone, auto_delete_days, updated_at)
-     VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `INSERT INTO config (id, bot_token, channel_id, channel_id_2, selected_channel, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone, auto_delete_days, updated_at)
+     VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        bot_token = excluded.bot_token,
        channel_id = excluded.channel_id,
+       channel_id_2 = excluded.channel_id_2,
+       selected_channel = excluded.selected_channel,
        drive_url = excluded.drive_url,
        schedule_days = excluded.schedule_days,
        schedule_start = excluded.schedule_start,
@@ -96,6 +102,8 @@ export async function saveConfig(config: AppConfig): Promise<void> {
     [
       config.botToken || "",
       config.channelId || "",
+      config.channelId2 || "",
+      config.selectedChannel === "secondary" ? "secondary" : "primary",
       config.driveUrl || "",
       config.scheduleDays || "",
       config.scheduleStart || "",
@@ -111,21 +119,23 @@ export async function getScheduledPosts(): Promise<Record<string, unknown>[]> {
   return result.results;
 }
 
-export async function schedulePosts(entries: any[], template: string): Promise<void> {
+export async function schedulePosts(entries: any[], template: string, channelId: string, channelLabel: string): Promise<void> {
   const defaultTemplate = "{texto_telegram}\n\n[button:👉 Leer más]";
   const chosenTemplate = template || defaultTemplate;
 
   await Promise.all(
     entries.map((entry) =>
       query(
-        `INSERT INTO scheduled_posts (title, summary, link, category, template, status, created_at)
-         VALUES (?, ?, ?, ?, ?, 'pending', datetime('now'))`,
+        `INSERT INTO scheduled_posts (title, summary, link, category, template, channel_id, channel_label, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now'))`,
         [
           entry.title || entry.fuente_nombre || "",
           entry.summary || entry.texto_telegram || "",
           entry.link || entry.fuente_url || "",
           entry.category || entry.categoria || "",
           chosenTemplate,
+          channelId,
+          channelLabel,
         ]
       )
     )

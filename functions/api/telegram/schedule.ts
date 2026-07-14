@@ -35,6 +35,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const { entries, template } = (await context.request.json()) as {
         entries?: DriveEntry[];
         template?: string;
+        targetChannel?: "primary" | "secondary";
       };
 
       if (!entries || !Array.isArray(entries) || entries.length === 0) {
@@ -46,17 +47,33 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       const defaultTemplate = "{texto_telegram}\n\n[button:👉 Leer más]";
       const chosenTemplate = template || defaultTemplate;
+      const configRes = await db
+        .prepare("SELECT channel_id, channel_id_2, selected_channel FROM config WHERE id = 1")
+        .all<{ channel_id: string; channel_id_2: string | null; selected_channel: string | null }>();
+      const config = configRes.results?.[0];
+      const selectedChannel = targetChannel || (config?.selected_channel === "secondary" ? "secondary" : "primary");
+      const channelId = selectedChannel === "secondary" ? config?.channel_id_2 : config?.channel_id;
+      const channelLabel = selectedChannel === "secondary" ? "Canal 2" : "Canal 1";
+
+      if (!channelId) {
+        return new Response(JSON.stringify({ error: `${channelLabel} no está configurado` }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
 
       const statements = entries.map((entry) => {
         return db.prepare(
-          `INSERT INTO scheduled_posts (title, summary, link, category, template, status, created_at)
-           VALUES (?, ?, ?, ?, ?, 'pending', datetime('now'))`
+          `INSERT INTO scheduled_posts (title, summary, link, category, template, channel_id, channel_label, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now'))`
         ).bind(
           entry.title || entry.fuente_nombre || "",
           entry.summary || entry.texto_telegram || "",
           entry.link || entry.fuente_url || "",
           entry.category || entry.categoria || "",
-          chosenTemplate
+          chosenTemplate,
+          channelId,
+          channelLabel
         );
       });
 

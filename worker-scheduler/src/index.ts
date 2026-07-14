@@ -37,7 +37,7 @@ export default {
         }
       }
 
-      if (!config.bot_token || !config.channel_id || !config.schedule_days) {
+      if (!config.bot_token || !config.schedule_days) {
         return;
       }
 
@@ -135,6 +135,8 @@ export default {
         link: string;
         category: string;
         template: string;
+        channel_id: string | null;
+        channel_label: string | null;
       }>();
 
       if (!pendingRes.results || pendingRes.results.length === 0) {
@@ -143,13 +145,21 @@ export default {
 
       const post = pendingRes.results[0];
       const id = post.id;
+      const targetChannelId = post.channel_id || config.channel_id;
+      if (!targetChannelId) {
+        await env.DB.prepare(
+          "UPDATE scheduled_posts SET status = 'failed', sent_at = datetime('now'), error_message = ? WHERE id = ?"
+        ).bind("No Telegram channel configured for this scheduled post", id).run();
+        return;
+      }
+
       console.log(`[Scheduler] Processing post ${id}: "${post.title}"`);
 
       try {
         // Send to Telegram
         await sendToTelegram(
           config.bot_token,
-          config.channel_id,
+          targetChannelId,
           {
             title: post.title,
             summary: post.summary,

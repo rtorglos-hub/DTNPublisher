@@ -18,6 +18,7 @@ import {
   ExternalLink,
   Filter,
   Eye,
+  EyeOff,
   Zap,
   Lock,
   Mail,
@@ -27,6 +28,8 @@ import {
 interface AppConfig {
   botToken: string;
   channelId: string;
+  channelId2?: string;
+  selectedChannel?: "primary" | "secondary";
   driveUrl: string;
   scheduleDays?: string;
   scheduleStart?: string;
@@ -51,8 +54,24 @@ interface Toast {
   title?: string;
 }
 
+type CollapsibleSection = "resources" | "template" | "autoDelete";
+type SectionVisibility = Record<CollapsibleSection, boolean>;
+
+const defaultSectionVisibility: SectionVisibility = {
+  resources: true,
+  template: true,
+  autoDelete: true,
+};
+
 export default function App() {
-  const [config, setConfig] = useState<AppConfig>({ botToken: "", channelId: "", driveUrl: "", autoDeleteDays: 10 });
+  const [config, setConfig] = useState<AppConfig>({
+    botToken: "",
+    channelId: "",
+    channelId2: "",
+    selectedChannel: "primary",
+    driveUrl: "",
+    autoDeleteDays: 10
+  });
   const [entries, setEntries] = useState<DriveEntry[]>(() => {
     try {
       const saved = localStorage.getItem("dtn_inbox_entries");
@@ -90,6 +109,18 @@ export default function App() {
   const [scheduling, setScheduling] = useState(false);
 
   const [autoDeleteDays, setAutoDeleteDays] = useState<number>(10);
+  const [sectionVisibility, setSectionVisibility] = useState<SectionVisibility>(() => {
+    try {
+      const saved = localStorage.getItem("dtn_section_visibility");
+      return saved ? { ...defaultSectionVisibility, ...JSON.parse(saved) } : defaultSectionVisibility;
+    } catch (e) {
+      return defaultSectionVisibility;
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem("dtn_section_visibility", JSON.stringify(sectionVisibility));
+  }, [sectionVisibility]);
 
   // Sync config values with local form states
   useEffect(() => {
@@ -175,6 +206,36 @@ export default function App() {
     }, 4500);
   };
 
+  const toggleSection = (section: CollapsibleSection) => {
+    setSectionVisibility((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  const VisibilityToggle = ({
+    section,
+    variant = "light",
+  }: {
+    section: CollapsibleSection;
+    variant?: "light" | "dark";
+  }) => {
+    const isVisible = sectionVisibility[section];
+    const Icon = isVisible ? Eye : EyeOff;
+    return (
+      <button
+        type="button"
+        onClick={() => toggleSection(section)}
+        title={isVisible ? "Ocultar sección" : "Mostrar sección"}
+        aria-label={isVisible ? "Ocultar sección" : "Mostrar sección"}
+        className={`border-2 w-8 h-8 flex items-center justify-center transition-all cursor-pointer ${
+          variant === "dark"
+            ? "border-white/30 text-[#FFD166] hover:bg-[#FFD166] hover:text-[#1A1A1A] hover:border-[#FFD166]"
+            : "border-[#1A1A1A] text-[#1A1A1A] bg-white/50 hover:bg-white hover:-translate-x-px hover:-translate-y-px hover:shadow-[2px_2px_0_#1A1A1A]"
+        }`}
+      >
+        <Icon className="w-4 h-4" />
+      </button>
+    );
+  };
+
   /** Returns indices in `entries[]` that pass the current search + category filter */
   const filteredIndices: number[] = entries
     .map((entry, idx) => ({ entry, idx }))
@@ -192,6 +253,10 @@ export default function App() {
   const categories = Array.from(
     new Set(entries.map((e) => e.category).filter(Boolean) as string[])
   );
+
+  const activeChannel = config.selectedChannel === "secondary" ? "secondary" : "primary";
+  const activeChannelLabel = activeChannel === "secondary" ? "Canal 2" : "Canal 1";
+  const activeChannelId = activeChannel === "secondary" ? config.channelId2 : config.channelId;
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -347,7 +412,7 @@ export default function App() {
       const r = await authenticatedFetch("/api/telegram/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entries: toSchedule, template }),
+        body: JSON.stringify({ entries: toSchedule, template, targetChannel: activeChannel }),
       });
       const data = await r.json();
       if (!r.ok) {
@@ -356,7 +421,7 @@ export default function App() {
         showToast(
           `Se programaron ${data.success} publicaciones correctamente.`,
           "success",
-          "Programación Exitosa"
+          `${activeChannelLabel} Asignado`
         );
         if (data.success > 0) {
           setEntries((prev) => prev.filter((_, i) => !selected.has(i)));
@@ -428,7 +493,7 @@ export default function App() {
       const r = await authenticatedFetch("/api/telegram/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entries: toSend, template }),
+        body: JSON.stringify({ entries: toSend, template, targetChannel: activeChannel }),
       });
       const data = await r.json();
       if (!r.ok) {
@@ -742,68 +807,78 @@ export default function App() {
 
           <div className="p-4 border-b-2 border-[#1A1A1A] bg-[#A8DADC] flex items-center gap-2 shrink-0">
             <Folder className="w-5 h-5" />
-            <h2 className="text-md font-black uppercase tracking-tight">Recursos e Input</h2>
+            <h2 className="text-md font-black uppercase tracking-tight flex-1">Recursos e Input</h2>
+            <VisibilityToggle section="resources" />
           </div>
 
           {/* Google Drive Config */}
           <div className="p-4 border-b-2 border-[#1A1A1A] bg-[#F1FAEE] space-y-3 shrink-0">
             <h3 className="text-xs font-black uppercase tracking-wide text-[#457B9D]">Origen: Google Drive</h3>
 
-            <div>
-              <label className="block text-[9px] uppercase font-black opacity-60 mb-1">
-                Enlace a Carpeta o Archivo
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={config.driveUrl}
-                  onChange={(e) => setConfig({ ...config, driveUrl: e.target.value })}
-                  className="w-full bg-white border-2 border-[#1A1A1A] text-xs py-1.5 pl-7 pr-2 font-mono outline-none shadow-[2px_2px_0_#1A1A1A] focus:-translate-x-px focus:-translate-y-px focus:shadow-[3px_3px_0_#1A1A1A] transition-all"
-                  placeholder="https://drive.google.com/..."
-                />
-                <Link2 className="w-4 h-4 absolute left-2 top-2 text-[#1A1A1A]/50 pointer-events-none" />
-              </div>
-            </div>
+            {sectionVisibility.resources && (
+              <>
+                <div>
+                  <label className="block text-[9px] uppercase font-black opacity-60 mb-1">
+                    Enlace a Carpeta o Archivo
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={config.driveUrl}
+                      onChange={(e) => setConfig({ ...config, driveUrl: e.target.value })}
+                      className="w-full bg-white border-2 border-[#1A1A1A] text-xs py-1.5 pl-7 pr-2 font-mono outline-none shadow-[2px_2px_0_#1A1A1A] focus:-translate-x-px focus:-translate-y-px focus:shadow-[3px_3px_0_#1A1A1A] transition-all"
+                      placeholder="https://drive.google.com/..."
+                    />
+                    <Link2 className="w-4 h-4 absolute left-2 top-2 text-[#1A1A1A]/50 pointer-events-none" />
+                  </div>
+                </div>
 
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <button
-                onClick={handleSaveDriveUrl}
-                className="border-2 border-[#1A1A1A] py-1.5 text-[10px] font-black uppercase bg-[#E9D8A6] hover:bg-[#D9C896] hover:-translate-x-px hover:-translate-y-px hover:shadow-[2px_2px_0_#1A1A1A] transition-all shadow-[1px_1px_0_#1A1A1A] flex items-center justify-center gap-1"
-              >
-                <Save className="w-3.5 h-3.5" /> Guardar Link
-              </button>
-              <button
-                onClick={fetchDrive}
-                disabled={fetching || !config.driveUrl}
-                className="border-2 border-[#1A1A1A] py-1.5 text-[10px] font-black uppercase bg-[#1A1A1A] text-white hover:bg-[#333333] hover:-translate-x-px hover:-translate-y-px hover:shadow-[2px_2px_0_#1A1A1A] transition-all disabled:opacity-40 disabled:pointer-events-none flex items-center justify-center gap-1"
-              >
-                <Download className={`w-3.5 h-3.5 ${fetching ? "animate-bounce" : ""}`} />
-                {fetching ? "Cargando..." : "Descargar JSON"}
-              </button>
-            </div>
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    onClick={handleSaveDriveUrl}
+                    className="border-2 border-[#1A1A1A] py-1.5 text-[10px] font-black uppercase bg-[#E9D8A6] hover:bg-[#D9C896] hover:-translate-x-px hover:-translate-y-px hover:shadow-[2px_2px_0_#1A1A1A] transition-all shadow-[1px_1px_0_#1A1A1A] flex items-center justify-center gap-1"
+                  >
+                    <Save className="w-3.5 h-3.5" /> Guardar Link
+                  </button>
+                  <button
+                    onClick={fetchDrive}
+                    disabled={fetching || !config.driveUrl}
+                    className="border-2 border-[#1A1A1A] py-1.5 text-[10px] font-black uppercase bg-[#1A1A1A] text-white hover:bg-[#333333] hover:-translate-x-px hover:-translate-y-px hover:shadow-[2px_2px_0_#1A1A1A] transition-all disabled:opacity-40 disabled:pointer-events-none flex items-center justify-center gap-1"
+                  >
+                    <Download className={`w-3.5 h-3.5 ${fetching ? "animate-bounce" : ""}`} />
+                    {fetching ? "Cargando..." : "Descargar JSON"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Template Config */}
-          <div className="p-4 flex flex-col gap-2 flex-1">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-black uppercase tracking-wide text-[#E63946]">Plantilla de Envío</h3>
+          <div className={`p-4 flex flex-col gap-2 ${sectionVisibility.template ? "flex-1" : "shrink-0 border-b-2 border-[#1A1A1A]"}`}>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-xs font-black uppercase tracking-wide text-[#E63946] flex-1">Plantilla de Envío</h3>
               <span className="text-[8px] font-mono bg-[#E63946]/10 text-[#E63946] border border-[#E63946] px-1.5 font-bold">
                 TELEGRAM
               </span>
+              <VisibilityToggle section="template" />
             </div>
-            <p className="text-[9px] text-[#1A1A1A]/70 leading-relaxed">
-              Usa{" "}
-              <code className="bg-[#1A1A1A]/10 px-1 font-mono font-bold">{`{texto_telegram}`}</code>{" "}
-              para el contenido listo del JSON, o combina claves como{" "}
-              <code className="bg-[#1A1A1A]/10 px-1 font-mono font-bold">{`{fuente_nombre}`}</code>,{" "}
-              <code className="bg-[#1A1A1A]/10 px-1 font-mono font-bold">{`{fuente_url}`}</code>,{" "}
-              <code className="bg-[#1A1A1A]/10 px-1 font-mono font-bold">{`{categoria}`}</code>.
-            </p>
-            <textarea
-              value={template}
-              onChange={(e) => setTemplate(e.target.value)}
-              className="flex-1 min-h-[180px] border-2 border-[#1A1A1A] bg-[#FDFDFD] p-3 font-mono text-xs outline-none resize-none shadow-[3px_3px_0_#1A1A1A] focus:-translate-x-px focus:-translate-y-px focus:shadow-[4px_4px_0_#1A1A1A] transition-all"
-            />
+            {sectionVisibility.template && (
+              <>
+                <p className="text-[9px] text-[#1A1A1A]/70 leading-relaxed">
+                  Usa{" "}
+                  <code className="bg-[#1A1A1A]/10 px-1 font-mono font-bold">{`{texto_telegram}`}</code>{" "}
+                  para el contenido listo del JSON, o combina claves como{" "}
+                  <code className="bg-[#1A1A1A]/10 px-1 font-mono font-bold">{`{fuente_nombre}`}</code>,{" "}
+                  <code className="bg-[#1A1A1A]/10 px-1 font-mono font-bold">{`{fuente_url}`}</code>,{" "}
+                  <code className="bg-[#1A1A1A]/10 px-1 font-mono font-bold">{`{categoria}`}</code>.
+                </p>
+                <textarea
+                  value={template}
+                  onChange={(e) => setTemplate(e.target.value)}
+                  className="flex-1 min-h-[180px] border-2 border-[#1A1A1A] bg-[#FDFDFD] p-3 font-mono text-xs outline-none resize-none shadow-[3px_3px_0_#1A1A1A] focus:-translate-x-px focus:-translate-y-px focus:shadow-[4px_4px_0_#1A1A1A] transition-all"
+                />
+              </>
+            )}
           </div>
         </section>
 
@@ -1098,6 +1173,14 @@ export default function App() {
                             {post.title || "Sin título"}
                           </h3>
                           <div className="flex items-center gap-1.5">
+                            {(post.channel_label || post.channel_id) && (
+                              <span
+                                className="bg-[#FFD166] text-[#1A1A1A] border border-[#1A1A1A] px-2 py-0.5 text-[10px] font-black uppercase"
+                                title={post.channel_id || ""}
+                              >
+                                {post.channel_label || "Canal"}
+                              </span>
+                            )}
                             {post.category && (
                               <span className="bg-[#457B9D]/10 text-[#457B9D] border border-[#457B9D] px-2 py-0.5 text-[10px] font-black uppercase">
                                 {post.category.replace(/_/g, " ")}
@@ -1196,18 +1279,64 @@ export default function App() {
                 />
               </div>
 
-              <div>
-                <label className="block text-[9px] uppercase font-black text-white/50 mb-1">Channel ID</label>
-                <input
-                  type="text"
-                  value={config.channelId}
-                  onChange={(e) => setConfig({ ...config, channelId: e.target.value })}
-                  className="w-full bg-transparent border-b-2 border-white/30 text-xs py-1.5 font-mono outline-none text-[#FFD166] focus:border-[#FFD166] transition-colors placeholder:text-white/20"
-                  placeholder="@mi_canal o -100123456789"
-                />
-                <span className="text-[8px] text-white/40 block mt-1 leading-relaxed">
-                  Canales públicos: <b>@nombre</b> &mdash; Canales privados: <b>-100XXXXXXXXXX</b>
-                </span>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[9px] uppercase font-black text-white/50 mb-1.5">
+                    Canal activo para nuevos posts
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { value: "primary" as const, label: "Canal 1", configured: Boolean(config.channelId) },
+                      { value: "secondary" as const, label: "Canal 2", configured: Boolean(config.channelId2) }
+                    ].map((channel) => {
+                      const isSelected = activeChannel === channel.value;
+                      return (
+                        <button
+                          key={channel.value}
+                          type="button"
+                          onClick={() => setConfig({ ...config, selectedChannel: channel.value })}
+                          className={`border-2 px-3 py-2 text-[10px] font-black uppercase transition-all flex items-center justify-center gap-1.5 ${
+                            isSelected
+                              ? "bg-[#FFD166] text-[#1A1A1A] border-[#FFD166] shadow-[2px_2px_0_white]"
+                              : "bg-transparent text-white/60 border-white/30 hover:text-white hover:border-white"
+                          }`}
+                        >
+                          {isSelected && <Check className="w-3.5 h-3.5" />}
+                          {channel.label}
+                          <span className={`w-1.5 h-1.5 rounded-full ${channel.configured ? "bg-green-400" : "bg-white/30"}`} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <span className="text-[8px] text-white/40 block mt-1.5 leading-relaxed">
+                    Los posts programados conservarán el canal activo al momento de programarlos.
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-[9px] uppercase font-black text-white/50 mb-1">Canal 1 ID</label>
+                  <input
+                    type="text"
+                    value={config.channelId}
+                    onChange={(e) => setConfig({ ...config, channelId: e.target.value })}
+                    className="w-full bg-transparent border-b-2 border-white/30 text-xs py-1.5 font-mono outline-none text-[#FFD166] focus:border-[#FFD166] transition-colors placeholder:text-white/20"
+                    placeholder="@canal_principal o -100123456789"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[9px] uppercase font-black text-white/50 mb-1">Canal 2 ID</label>
+                  <input
+                    type="text"
+                    value={config.channelId2 || ""}
+                    onChange={(e) => setConfig({ ...config, channelId2: e.target.value })}
+                    className="w-full bg-transparent border-b-2 border-white/30 text-xs py-1.5 font-mono outline-none text-[#FFD166] focus:border-[#FFD166] transition-colors placeholder:text-white/20"
+                    placeholder="@canal_secundario o -100123456789"
+                  />
+                  <span className="text-[8px] text-white/40 block mt-1 leading-relaxed">
+                    Activo ahora: <b>{activeChannelLabel}</b>{activeChannelId ? ` (${activeChannelId})` : " sin configurar"}.
+                  </span>
+                </div>
               </div>
 
               <button
@@ -1321,44 +1450,42 @@ export default function App() {
 
             {/* Limpieza Automática */}
             <div className="pt-4 border-t border-white/20 mt-4 space-y-4">
-              <h3 className="text-xs font-black uppercase tracking-wider text-[#FFD166] border-b border-white/20 pb-2">
-                Limpieza Automática
-              </h3>
-
-              <div>
-                <label className="block text-[8px] uppercase font-black text-white/50 mb-1">
-                  Borrar posts enviados tras (días)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={autoDeleteDays}
-                  onChange={(e) => setAutoDeleteDays(Math.max(0, parseInt(e.target.value) || 0))}
-                  className="w-full bg-transparent border-b-2 border-white/30 text-xs py-1.5 font-mono outline-none text-[#FFD166] focus:border-[#FFD166] transition-colors"
-                  placeholder="Ej. 10 (0 para desactivar)"
-                />
-                <span className="text-[8px] text-white/40 block mt-1 leading-relaxed">
-                  Los posts con estado "Enviado" se borrarán de la base de datos automáticamente si pasaron más de estos días (usa 0 para desactivar).
-                </span>
+              <div className="flex items-center justify-between gap-2 border-b border-white/20 pb-2">
+                <h3 className="text-xs font-black uppercase tracking-wider text-[#FFD166]">
+                  Limpieza Automática
+                </h3>
+                <VisibilityToggle section="autoDelete" variant="dark" />
               </div>
 
-              <button
-                onClick={handleSaveAutoDeleteConfig}
-                className="w-full border-2 border-[#FFD166] py-2 text-[10px] font-black uppercase bg-transparent text-[#FFD166] hover:bg-[#FFD166] hover:text-[#1A1A1A] hover:-translate-x-px hover:-translate-y-px transition-all cursor-pointer"
-              >
-                Guardar Configuración de Limpieza
-              </button>
+              {sectionVisibility.autoDelete && (
+                <>
+                  <div>
+                    <label className="block text-[8px] uppercase font-black text-white/50 mb-1">
+                      Borrar posts enviados tras (días)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={autoDeleteDays}
+                      onChange={(e) => setAutoDeleteDays(Math.max(0, parseInt(e.target.value) || 0))}
+                      className="w-full bg-transparent border-b-2 border-white/30 text-xs py-1.5 font-mono outline-none text-[#FFD166] focus:border-[#FFD166] transition-colors"
+                      placeholder="Ej. 10 (0 para desactivar)"
+                    />
+                    <span className="text-[8px] text-white/40 block mt-1 leading-relaxed">
+                      Los posts con estado "Enviado" se borrarán de la base de datos automáticamente si pasaron más de estos días (usa 0 para desactivar).
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={handleSaveAutoDeleteConfig}
+                    className="w-full border-2 border-[#FFD166] py-2 text-[10px] font-black uppercase bg-transparent text-[#FFD166] hover:bg-[#FFD166] hover:text-[#1A1A1A] hover:-translate-x-px hover:-translate-y-px transition-all cursor-pointer"
+                  >
+                    Guardar Configuración de Limpieza
+                  </button>
+                </>
+              )}
             </div>
 
-            {/* Help box */}
-            <div className="bg-white/5 border border-white/10 p-3 text-[9px] space-y-2 font-mono leading-relaxed text-white/70">
-              <span className="font-bold text-[#FFD166] block uppercase tracking-wide">¿Cómo configurar?</span>
-              <ol className="list-decimal pl-4 space-y-1">
-                <li>Crea un bot con <b>@BotFather</b> y copia el token.</li>
-                <li>Agrega el bot a tu canal como <b>Administrador</b> con permiso de publicación.</li>
-                <li>Para canales privados, reenvía un mensaje a <i>@RawDataBot</i> y copia el <b>chat id</b> (comienza con <b>-100</b>).</li>
-              </ol>
-            </div>
           </div>
         </section>
 
