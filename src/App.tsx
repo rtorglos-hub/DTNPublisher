@@ -156,6 +156,15 @@ export default function App() {
     return response;
   };
 
+  const responseErrorMessage = async (response: Response, fallback: string) => {
+    try {
+      const data = await response.json();
+      return data.error ? `${fallback}: ${data.error}` : fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
   useEffect(() => {
     const initApp = async () => {
       try {
@@ -304,7 +313,11 @@ export default function App() {
           "Bot Conectado ✓"
         );
       } else {
-        showToast("Error al guardar la configuración en la base de datos.", "error", "Error de Guardado");
+        showToast(
+          await responseErrorMessage(saveRes, "Error al guardar la configuración en la base de datos"),
+          "error",
+          "Error de Guardado"
+        );
       }
     } catch (e) {
       showToast(`Error al validar bot: ${e}`, "error", "Error de Red");

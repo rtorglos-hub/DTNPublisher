@@ -46,6 +46,43 @@ async function query(sql: string, params: unknown[] = []): Promise<{ results: Re
   return data.result[0];
 }
 
+async function ignoreExistingColumn(action: Promise<unknown>) {
+  try {
+    await action;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (!/duplicate column name|already exists/i.test(message)) {
+      throw e;
+    }
+  }
+}
+
+async function ensureConfigSchema(): Promise<void> {
+  await query(
+    `CREATE TABLE IF NOT EXISTS config (
+      id INTEGER PRIMARY KEY,
+      bot_token TEXT,
+      channel_id TEXT,
+      drive_url TEXT,
+      updated_at DATETIME
+    )`
+  );
+
+  const columns = [
+    "ALTER TABLE config ADD COLUMN schedule_days TEXT",
+    "ALTER TABLE config ADD COLUMN schedule_start TEXT",
+    "ALTER TABLE config ADD COLUMN schedule_end TEXT",
+    "ALTER TABLE config ADD COLUMN schedule_timezone TEXT DEFAULT 'Europe/Madrid'",
+    "ALTER TABLE config ADD COLUMN auto_delete_days INTEGER DEFAULT 10",
+    "ALTER TABLE config ADD COLUMN channel_id_2 TEXT",
+    "ALTER TABLE config ADD COLUMN selected_channel TEXT DEFAULT 'primary'",
+  ];
+
+  for (const sql of columns) {
+    await ignoreExistingColumn(query(sql));
+  }
+}
+
 export interface AppConfig {
   botToken: string;
   channelId: string;
@@ -60,6 +97,8 @@ export interface AppConfig {
 }
 
 export async function getConfig(): Promise<AppConfig> {
+  await ensureConfigSchema();
+
   const result = await query(
     "SELECT bot_token, channel_id, channel_id_2, selected_channel, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone, auto_delete_days FROM config WHERE id = 1"
   );
@@ -84,6 +123,8 @@ export async function getConfig(): Promise<AppConfig> {
 }
 
 export async function saveConfig(config: AppConfig): Promise<void> {
+  await ensureConfigSchema();
+
   await query(
     `INSERT INTO config (id, bot_token, channel_id, channel_id_2, selected_channel, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone, auto_delete_days, updated_at)
      VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))

@@ -2,7 +2,6 @@ import "dotenv/config";
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { fileURLToPath } from 'url';
 import { 
   getConfig, 
   saveConfig, 
@@ -16,8 +15,6 @@ import {
 } from "./src/d1.js";
 import { extractFolderId, fetchDriveEntries, fetchSingleDriveFile, fetchGenericJsonUrl } from "./src/drive.js";
 import { sendToTelegram, sendBatchToTelegram } from "./src/telegram.js";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function startServer() {
   const app = express();
@@ -333,7 +330,7 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(__dirname, 'dist');
+    const distPath = path.resolve(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));

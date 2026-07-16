@@ -15,6 +15,45 @@ export interface AppConfig {
   autoDeleteDays?: number;
 }
 
+async function ignoreExistingColumn(action: Promise<unknown>) {
+  try {
+    await action;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (!/duplicate column name|already exists/i.test(message)) {
+      throw e;
+    }
+  }
+}
+
+async function ensureConfigSchema(db: D1Database) {
+  await db
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS config (
+        id INTEGER PRIMARY KEY,
+        bot_token TEXT,
+        channel_id TEXT,
+        drive_url TEXT,
+        updated_at DATETIME
+      )`
+    )
+    .run();
+
+  const columns = [
+    "ALTER TABLE config ADD COLUMN schedule_days TEXT",
+    "ALTER TABLE config ADD COLUMN schedule_start TEXT",
+    "ALTER TABLE config ADD COLUMN schedule_end TEXT",
+    "ALTER TABLE config ADD COLUMN schedule_timezone TEXT DEFAULT 'Europe/Madrid'",
+    "ALTER TABLE config ADD COLUMN auto_delete_days INTEGER DEFAULT 10",
+    "ALTER TABLE config ADD COLUMN channel_id_2 TEXT",
+    "ALTER TABLE config ADD COLUMN selected_channel TEXT DEFAULT 'primary'",
+  ];
+
+  for (const sql of columns) {
+    await ignoreExistingColumn(db.prepare(sql).run());
+  }
+}
+
 export const onRequestGet: PagesFunction<Env> = async (context) => {
   const db = context.env.DB;
   if (!db) {
@@ -25,6 +64,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   }
 
   try {
+    await ensureConfigSchema(db);
+
     const { results } = await db
       .prepare("SELECT bot_token, channel_id, channel_id_2, selected_channel, drive_url, schedule_days, schedule_start, schedule_end, schedule_timezone, auto_delete_days FROM config WHERE id = 1")
       .all<{
@@ -93,6 +134,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
   try {
     const config = (await context.request.json()) as AppConfig;
+    await ensureConfigSchema(db);
     
     await db
       .prepare(
