@@ -39,18 +39,25 @@ async function ensureConfigSchema(db: D1Database) {
     )
     .run();
 
+  const { results } = await db
+    .prepare("SELECT name FROM pragma_table_info('config')")
+    .all<{ name: string }>();
+  const existingColumns = new Set((results || []).map((column) => column.name));
+
   const columns = [
-    "ALTER TABLE config ADD COLUMN schedule_days TEXT",
-    "ALTER TABLE config ADD COLUMN schedule_start TEXT",
-    "ALTER TABLE config ADD COLUMN schedule_end TEXT",
-    "ALTER TABLE config ADD COLUMN schedule_timezone TEXT DEFAULT 'Europe/Madrid'",
-    "ALTER TABLE config ADD COLUMN auto_delete_days INTEGER DEFAULT 10",
-    "ALTER TABLE config ADD COLUMN channel_id_2 TEXT",
-    "ALTER TABLE config ADD COLUMN selected_channel TEXT DEFAULT 'primary'",
+    { name: "schedule_days", sql: "ALTER TABLE config ADD COLUMN schedule_days TEXT" },
+    { name: "schedule_start", sql: "ALTER TABLE config ADD COLUMN schedule_start TEXT" },
+    { name: "schedule_end", sql: "ALTER TABLE config ADD COLUMN schedule_end TEXT" },
+    { name: "schedule_timezone", sql: "ALTER TABLE config ADD COLUMN schedule_timezone TEXT" },
+    { name: "auto_delete_days", sql: "ALTER TABLE config ADD COLUMN auto_delete_days INTEGER" },
+    { name: "channel_id_2", sql: "ALTER TABLE config ADD COLUMN channel_id_2 TEXT" },
+    { name: "selected_channel", sql: "ALTER TABLE config ADD COLUMN selected_channel TEXT" },
   ];
 
-  for (const sql of columns) {
-    await ignoreExistingColumn(db.prepare(sql).run());
+  for (const column of columns) {
+    if (!existingColumns.has(column.name)) {
+      await ignoreExistingColumn(db.prepare(column.sql).run());
+    }
   }
 }
 
