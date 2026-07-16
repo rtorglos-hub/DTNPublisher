@@ -1,15 +1,22 @@
 import type { DriveEntry } from "./drive.js";
 
+function normalizeText(value: unknown): string {
+  return String(value ?? "")
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\r\n/g, "\n");
+}
+
 function fillTemplate(template: string, entry: DriveEntry): string {
   return template
-    .replace(/\{texto_telegram\}/g, String(entry.texto_telegram || entry.summary || ""))
-    .replace(/\{fuente_nombre\}/g, String(entry.fuente_nombre || entry.title || ""))
-    .replace(/\{fuente_url\}/g, String(entry.fuente_url || entry.link || ""))
-    .replace(/\{categoria\}/g, String(entry.categoria || entry.category || ""))
-    .replace(/\{title\}/g, String(entry.title || entry.fuente_nombre || ""))
-    .replace(/\{summary\}/g, String(entry.summary || entry.texto_telegram || ""))
-    .replace(/\{link\}/g, String(entry.link || entry.fuente_url || ""))
-    .replace(/\{category\}/g, String(entry.category || entry.categoria || ""));
+    .replace(/\{texto_telegram\}/g, normalizeText(entry.texto_telegram || entry.summary || ""))
+    .replace(/\{fuente_nombre\}/g, normalizeText(entry.fuente_nombre || entry.title || ""))
+    .replace(/\{fuente_url\}/g, normalizeText(entry.fuente_url || entry.link || ""))
+    .replace(/\{categoria\}/g, normalizeText(entry.categoria || entry.category || ""))
+    .replace(/\{title\}/g, normalizeText(entry.title || entry.fuente_nombre || ""))
+    .replace(/\{summary\}/g, normalizeText(entry.summary || entry.texto_telegram || ""))
+    .replace(/\{link\}/g, normalizeText(entry.link || entry.fuente_url || ""))
+    .replace(/\{category\}/g, normalizeText(entry.category || entry.categoria || ""));
 }
 
 function isValidTelegramButtonUrl(url: unknown): url is string {

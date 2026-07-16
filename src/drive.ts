@@ -20,16 +20,29 @@ export interface DriveEntry {
   [key: string]: unknown;
 }
 
+function normalizeText(value: unknown): string {
+  return String(value ?? "")
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\r\n/g, "\n");
+}
+
 function normalizeEntry(entry: any): DriveEntry {
   if (!entry || typeof entry !== "object") return entry;
   
   const normalized: DriveEntry = { ...entry };
+
+  if (typeof normalized.texto_telegram === "string") {
+    normalized.texto_telegram = normalizeText(normalized.texto_telegram);
+  }
   
   if (!normalized.title) {
     normalized.title = entry.title || entry.fuente_nombre || entry.name || "Untitled";
   }
   if (!normalized.summary) {
-    normalized.summary = entry.summary || entry.texto_telegram || entry.descripcion || entry.description || "";
+    normalized.summary = normalizeText(entry.summary || entry.texto_telegram || entry.descripcion || entry.description || "");
+  } else {
+    normalized.summary = normalizeText(normalized.summary);
   }
   if (!normalized.link) {
     normalized.link = entry.link || entry.fuente_url || entry.url || "";
@@ -124,4 +137,3 @@ export async function fetchGenericJsonUrl(url: string): Promise<DriveEntry[]> {
   const data = await res.json();
   return normalizeDriveData(data);
 }
-

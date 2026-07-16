@@ -260,6 +260,11 @@ export default function App() {
   const activeChannel = config.selectedChannel === "secondary" ? "secondary" : "primary";
   const activeChannelLabel = activeChannel === "secondary" ? "Canal 2" : "Canal 1";
   const activeChannelId = activeChannel === "secondary" ? config.channelId2 : config.channelId;
+  const displayText = (value: unknown) =>
+    String(value ?? "")
+      .replace(/\\r\\n/g, "\n")
+      .replace(/\\n/g, "\n")
+      .replace(/\r\n/g, "\n");
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -1052,8 +1057,8 @@ export default function App() {
                             </div>
 
                             {/* Summary */}
-<p className="text-sm opacity-70 mt-1 line-clamp-2 font-mono">
-                              {entry.summary || ""}
+                            <p className="text-sm opacity-70 mt-1 max-h-24 overflow-hidden font-mono whitespace-pre-wrap">
+                              {displayText(entry.summary)}
                             </p>
 
                             {/* Actions row */}
@@ -1205,8 +1210,8 @@ export default function App() {
                         </div>
 
                         {/* Summary */}
-                        <p className="text-sm opacity-70 mt-1 line-clamp-2 font-mono">
-                          {post.summary || ""}
+                        <p className="text-sm opacity-70 mt-1 max-h-24 overflow-hidden font-mono whitespace-pre-wrap">
+                          {displayText(post.summary)}
                         </p>
 
                         {/* Error details if failed */}
@@ -1510,13 +1515,19 @@ export default function App() {
 }
 
 function fillTemplate(template: string, entry: DriveEntry): string {
+  const text = (value: unknown) =>
+    String(value ?? "")
+      .replace(/\\r\\n/g, "\n")
+      .replace(/\\n/g, "\n")
+      .replace(/\r\n/g, "\n");
+
   return template
-    .replace(/\{texto_telegram\}/g, String(entry.texto_telegram ?? entry.summary ?? ""))
-    .replace(/\{fuente_nombre\}/g, String(entry.fuente_nombre ?? entry.title ?? ""))
-    .replace(/\{fuente_url\}/g, String(entry.fuente_url ?? entry.link ?? ""))
-    .replace(/\{categoria\}/g, String(entry.categoria ?? entry.category ?? ""))
-    .replace(/\{title\}/g, String(entry.title ?? entry.fuente_nombre ?? ""))
-    .replace(/\{summary\}/g, String(entry.summary ?? entry.texto_telegram ?? ""))
-    .replace(/\{link\}/g, String(entry.link ?? entry.fuente_url ?? ""))
-    .replace(/\{category\}/g, String(entry.category ?? entry.categoria ?? ""));
+    .replace(/\{texto_telegram\}/g, text(entry.texto_telegram ?? entry.summary ?? ""))
+    .replace(/\{fuente_nombre\}/g, text(entry.fuente_nombre ?? entry.title ?? ""))
+    .replace(/\{fuente_url\}/g, text(entry.fuente_url ?? entry.link ?? ""))
+    .replace(/\{categoria\}/g, text(entry.categoria ?? entry.category ?? ""))
+    .replace(/\{title\}/g, text(entry.title ?? entry.fuente_nombre ?? ""))
+    .replace(/\{summary\}/g, text(entry.summary ?? entry.texto_telegram ?? ""))
+    .replace(/\{link\}/g, text(entry.link ?? entry.fuente_url ?? ""))
+    .replace(/\{category\}/g, text(entry.category ?? entry.categoria ?? ""));
 }
